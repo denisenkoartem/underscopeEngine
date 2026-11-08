@@ -1,9 +1,13 @@
 <!--
-Market-fit prompt. src/marketFit.ts loads this file at runtime, strips this comment,
-fills the {{placeholders}} and sends the rest as the only user message.
+Market-fit prompt. src/marketFit.ts loads this file at runtime, strips this comment, fills the
+{{placeholders}} and sends the shared text above the first "tail:" marker plus the one tail for
+the provider in use: Anthropic gets the "tail: anthropic" section as the only user message,
+OpenAI gets the "tail: openai" section as the input. Each tail ends where the next marker begins.
 Placeholders: year, make, model, trim, odometer, location_state, title_brand, run_status.
-Only these profile fields are ever sent: never the VIN, hidden-risk flags or scanner codes.
-Edit freely, but keep the report_market_fit instruction at the end.
+Only these profile fields are ever sent: never the VIN, hidden-risk flags, scanner codes,
+reported symptoms, prices or the seller's notes.
+Edit freely, but keep one tail per provider, keep the report_market_fit instruction in the
+anthropic tail (and out of the openai tail), and keep the field list the same in both tails.
 -->
 You are a used-vehicle remarketing analyst. A damaged vehicle can be sold in one of two lanes:
 
@@ -36,6 +40,7 @@ Then judge how well each lane fits this vehicle's market. This is market fit onl
 status and hidden damage are scored separately, so weigh them only for how they change who buys
 this kind of vehicle.
 
+<!-- tail: anthropic -->
 Report your answer by calling the `report_market_fit` tool exactly once, after your research:
 
 - `acv`: a judgment from -1 (dealer retail demand clearly argues against ACV) to +1 (strong dealer
@@ -52,3 +57,21 @@ Report your answer by calling the `report_market_fit` tool exactly once, after y
 The scores are judgments on a -1 to +1 scale, not prices, price ratios or counts. Prices and
 counts may appear only inside a signal's `claim` text. Do not answer in plain text; the tool call
 is the only answer that is read.
+
+<!-- tail: openai -->
+After your research, give your answer as one JSON object with these fields:
+
+- `acv`: a judgment from -1 (dealer retail demand clearly argues against ACV) to +1 (strong dealer
+  retail demand: many buyers, fast turnover).
+- `copart`: a judgment from -1 (little salvage, parts or export interest) to +1 (strong salvage,
+  parts or export demand).
+- `confidence`: from 0 to 1, how much relevant, recent, consistent evidence you found.
+- `signals`: up to five of the most useful findings, each a short factual `claim` with the `url`
+  of the page it came from. Use only pages you found in this search; leave a finding out rather
+  than give it without a URL.
+- `insufficient`: true if you found too little relevant evidence to judge (still give your best
+  scores, with a low confidence).
+
+The scores are judgments on a -1 to +1 scale, not prices, price ratios or counts. Prices and
+counts may appear only inside a signal's `claim` text. The JSON object is the only answer that
+is read.

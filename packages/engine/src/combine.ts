@@ -36,8 +36,9 @@ import {
 
 export const OPTION_LABEL: Record<Option, string> = { acv: "ACV", copart: "Copart" };
 export const CONFIRM_TITLE = "confirm title brand";
-/** Movements and ties smaller than this are treated as zero / equal. */
-const EPS = 1e-9;
+/** Movements and ties smaller than this are treated as zero / equal (also the dead-heat test in explain.ts). */
+export const TIE_EPS = 1e-9;
+const EPS = TIE_EPS;
 
 type Scored = { acv: number; copart: number; confidence: number };
 
@@ -115,7 +116,10 @@ function evaluate(record: NormalizedRecord, config: EngineConfig, market: Market
   }
   const u = { acv: utility(config, scores, "acv"), copart: utility(config, scores, "copart") };
   const p = softmax(u, config.weights.temperature);
-  const recommendation: Option = p.acv >= p.copart ? "acv" : "copart";
+  // Dead heat (|U_acv - U_copart| < EPS): the first option in OPTIONS (ACV) is reported, so float
+  // noise can never pick the answer; reasons[0] then says it is a dead heat (explain.ts).
+  const deadHeat = Math.abs(u.acv - u.copart) < EPS;
+  const recommendation: Option = deadHeat ? OPTIONS[0] : p.acv >= p.copart ? "acv" : "copart";
   // Threshold on the probability the Decision reports (4 decimals), so it never shows 0.7000
   // next to "close_call". verify_first movements still use the unrounded p.
   const shown = reportedProbabilities(p)[recommendation];
@@ -123,9 +127,19 @@ function evaluate(record: NormalizedRecord, config: EngineConfig, market: Market
   return { scores, excluded, probabilities: p, recommendation, confidence };
 }
 
+/** verify_first and whether it was picked only by tie order because no flag moves the answer. */
+interface VerifyChoice {
+  flag: string | null;
+  /** True when every counted flag moved P(top) by < EPS, so `flag` is just the first in tie order. */
+  noMove: boolean;
+}
+
 /**
  * The counted hidden-risk flag whose resolution (to "no" or "yes") moves the recommended
- * option's probability most; ties go to the earlier flag in FLAG_NAMES. null when nothing moves.
+ * option's probability most; ties go to the earlier flag in FLAG_NAMES. Spec-literal tie rule
+ * (round 4b): with both options eligible, flags that all move it by < EPS (e.g. 5 unknowns that
+ * stay in the 3+ row) are tied too, so the first counted flag is returned with noMove set.
+ * null when no flag is counted, or when 0 or 1 option is eligible and so nothing can move.
  * Re-runs use evaluate() on the given record (same title brand, never the unknown-title
  * branching), so `base` must be that same record's evaluate() result.
  */
@@ -134,12 +148,13 @@ function verifyFirst(
   config: EngineConfig,
   market: MarketFitResult,
   base: Evaluation,
-): string | null {
+): VerifyChoice {
   const top = base.recommendation;
-  if (top === null) return null;
+  if (top === null) return { flag: null, noMove: false };
+  const counted = countedFlags(record, config);
   let best: string | null = null;
   let bestMove = 0;
-  for (const flag of countedFlags(record, config)) {
+  for (const flag of counted) {
     const move = Math.max(
       ...(["no", "yes"] as const).map((v) =>
         Math.abs(evaluate(withFlag(record, flag, v), config, market).probabilities[top] - base.probabilities[top]),
@@ -151,7 +166,11 @@ function verifyFirst(
       bestMove = move;
     }
   }
-  return best;
+  if (best !== null) return { flag: best, noMove: false };
+  const [first] = counted;
+  // Both options eligible and counted flags, none of which moves the answer: a tie on 0.
+  if (first !== undefined && base.excluded.length === 0) return { flag: first, noMove: true };
+  return { flag: null, noMove: false };
 }
 
 function assemble(
@@ -159,7 +178,7 @@ function assemble(
   config: EngineConfig,
   market: MarketFitResult,
   ev: Evaluation,
-  verify_first: string | null,
+  verify: VerifyChoice,
   titleNote?: string,
 ): Decision {
   const category_scores = {} as Record<Category, CategoryScore>;
@@ -175,19 +194,22 @@ function assemble(
     recommendation: ev.recommendation,
     probabilities,
     confidence: ev.confidence,
-    verify_first,
+    verify_first: verify.flag,
     category_scores,
     reasons: [],
     risks: [],
     market_signals: [...market.signals],
     weights_version: config.weights.version,
     excluded: ev.excluded,
+    // Shown only: no scorer, utility or verify_first above reads record.valuation.
+    valuation: record.valuation ? { ...record.valuation, salvage_comps: [...record.valuation.salvage_comps] } : null,
   };
   decision.reasons = buildReasons(decision, config);
   decision.risks = buildRisks(
     decision,
     config,
     countedFlags(record, config).map((flag) => ({ flag, value: record.flags[flag] })),
+    { noMove: verify.noMove },
   );
   return decision;
 }
@@ -227,9 +249,9 @@ function decideUnknownTitle(
   // in the unmodified and the modified runs: P(BASE's recommendation) from the unknown-title
   // row. Re-branching each variant would sometimes swap in the clean branch's probability
   // (whenever that variant's branches disagree) and compare numbers from different runs.
-  const reported: { record: NormalizedRecord; ev: Evaluation; verify: string | null } = agree
+  const reported: { record: NormalizedRecord; ev: Evaluation; verify: VerifyChoice } = agree
     ? { record, ev: base, verify: verifyFirst(record, config, market, base) }
-    : { record: clean, ev: { ...evClean, confidence: "close_call" }, verify: CONFIRM_TITLE };
+    : { record: clean, ev: { ...evClean, confidence: "close_call" }, verify: { flag: CONFIRM_TITLE, noMove: false } };
 
   // Insufficient override: unknown title plus 3+ unresolved hidden-risk flags.
   const confidence: Confidence = countedFlags(record, config).length >= 3 ? "insufficient" : reported.ev.confidence;

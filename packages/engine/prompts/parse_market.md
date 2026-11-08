@@ -1,9 +1,9 @@
 <!--
-Market-fit prompt for the free-text parser (Gemini with the Google Search tool). src/parse.ts
-loads this file at runtime, strips this comment, fills the {{placeholders}} and sends the rest
-as the only user message. Same intent as prompts/market_fit.md (the Anthropic scorer), but the
-answer is one JSON object in the reply text, because a JSON response schema is not used together
-with the search tool. src/parse.ts extracts and validates that object.
+Market-fit prompt for the free-text parser (OpenAI gpt-4o-mini with the web_search tool).
+src/parse.ts loads this file at runtime, strips this comment, fills the {{placeholders}} and
+sends the rest as the request input. Same intent as prompts/market_fit.md (the engine's own
+market-fit call). The answer format is enforced by a strict JSON schema in src/parse.ts
+(MARKET_JSON_SCHEMA); src/parse.ts then checks the ranges and the signal URLs.
 Placeholders: year, make, model, trim, odometer, location_state, title_brand, run_status.
 Only these profile fields are ever sent: never the free text, VIN, flags, codes or symptoms.
 -->
@@ -25,7 +25,7 @@ Vehicle profile (this is all you know about the vehicle):
 - Title brand: {{title_brand}}
 - Run status: {{run_status}}
 
-Use Google Search to gather current market evidence for comparable vehicles (same model, nearby
+Search the web to gather current market evidence for comparable vehicles (same model, nearby
 years, similar mileage):
 
 1. Dealer retail demand, as the signal for ACV: how many comparable units are listed for retail,
@@ -38,7 +38,7 @@ Then judge how well each lane fits this vehicle's market. This is market fit onl
 status and hidden damage are scored separately, so weigh them only for how they change who buys
 this kind of vehicle.
 
-Answer with ONE JSON object and nothing else (no prose before or after it), in this shape:
+After searching, answer with this JSON object:
 
 ```json
 {

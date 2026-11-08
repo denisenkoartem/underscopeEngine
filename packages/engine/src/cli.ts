@@ -13,8 +13,8 @@ import { ConfigError, PACKAGE_ROOT, loadConfig, parseJsonText, type EngineConfig
 import { renderExplainTable } from "./explain.js";
 import { compareDecision, parseExpected } from "./expected.js";
 import { InputError, normalizeRecord, type NormalizedRecord } from "./input.js";
-import { scoreMarketFit, type MarketFitOptions } from "./marketFit.js";
-import type { GeminiClient } from "./gemini.js";
+import { scoreMarketFit, usageCostKnown, type MarketFitOptions } from "./marketFit.js";
+import type { ParserClient } from "./openaiParse.js";
 import { ParseError, parseFreeText, toEngineInput, type ParseResult } from "./parse.js";
 import { buildSampleConfig, formatSampleResults, readSampleFile, runSamples } from "./samples.js";
 import type { Decision, MarketFitResult } from "./types.js";
@@ -30,10 +30,12 @@ const USAGE = `Usage: pnpm engine <command> [options]
   samples <file.json>   run a sample_vehicles.json file offline under its own config_used
                         (config/ plus the file's overrides, in memory) and compare each
                         vehicle with its expected_offline; exit 1 on any FAIL
-  parse "<text>"        turn free-text notes into an input record JSON with Gemini (needs
-                        GOOGLE_API_KEY); stdout is that JSON only, logs go to stderr
+  parse "<text>"        turn free-text notes into an input record JSON with OpenAI gpt-4o-mini
+                        (needs OPENAI_API_KEY); stdout is that JSON only, logs go to stderr
 Options:
-  --offline             never call the API; market fit uses the fallback table
+  --offline             never call the API; market fit uses the fallback table. Without
+                        it, market fit calls Anthropic or OpenAI: MARKET_PROVIDER, or when
+                        unset the first of ANTHROPIC_API_KEY, OPENAI_API_KEY that is set
   --as-of <year>        year used for vehicle age (default: the current year; eval uses
                         each example's as_of_year; samples always uses the year of the
                         file's "generated" date and rejects --as-of)
@@ -41,7 +43,7 @@ Options:
                         config_used and report the differences (informational, exit 0)
   --file <notes.txt>    parse only: read the text from a file instead of the argument
   --out <file.json>     parse only: also write the JSON to this file
-  --no-market           parse only: skip the Gemini market-fit call (Google Search)
+  --no-market           parse only: skip the market-fit call (OpenAI web search)
   --decide              parse only: then run the engine on the JSON (offline, with the parsed
                         market_fit block) and print the Decision JSON after it
 A "*" in the file name is expanded (it must match exactly one file).`;
@@ -67,8 +69,8 @@ export interface CliArgs {
 
 /** What tests inject into main(); the CLI itself passes nothing. */
 export interface CliDeps {
-  /** Gemini client for parse (tests pass a fake; otherwise built from the key). */
-  geminiClient?: GeminiClient;
+  /** OpenAI client for parse (tests pass a fake; otherwise built from the key). */
+  parserClient?: ParserClient;
   /** Environment for parse; defaults to process.env (after .env loading). */
   env?: NodeJS.ProcessEnv;
 }
@@ -151,8 +153,8 @@ export function loadDotEnv(
   paths: string[] = [join(PACKAGE_ROOT, ".env"), join(REPO_ROOT, ".env")],
   warn: (line: string) => void = (line) => console.error(line),
 ): void {
-  // GOOGLE_API_KEY / GEMINI_API_KEY are the free-text parser's keys (parse command).
-  const keys = ["ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"];
+  // ANTHROPIC_API_KEY / OPENAI_API_KEY: market fit. OPENAI_API_KEY is also the free-text parser's key (parse command).
+  const keys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"];
   const dropEmptyKey = () => {
     for (const k of keys) if (process.env[k] === "") delete process.env[k];
   };
@@ -204,6 +206,8 @@ async function evalExamples(config: EngineConfig, offline: boolean): Promise<boo
   let cost = 0;
   let requests = 0;
   let billed = 0;
+  /** Requests whose cost is not in the total (an OpenAI model without a price row). */
+  let unknownCost = 0;
   for (const f of files) {
     const stem = f.replace(/\.json$/, "");
     let problems: string[];
@@ -219,6 +223,7 @@ async function evalExamples(config: EngineConfig, offline: boolean): Promise<boo
         cost += market.usage.cost_usd;
         requests += market.usage.requests;
         billed++;
+        if (!usageCostKnown(market.usage)) unknownCost += market.usage.requests;
       }
       problems = compareDecision(expected, decision);
     } catch (e) {
@@ -230,8 +235,9 @@ async function evalExamples(config: EngineConfig, offline: boolean): Promise<boo
   }
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   // Requests, not examples: one example can make several (a retry, pause_turn continuations).
+  const unknown = unknownCost > 0 ? `; cost unknown for ${unknownCost} of them: pricing not configured` : "";
   console.log(
-    `\nTotal API cost: $${cost.toFixed(4)} (${plural(requests, "API request")} for ${billed} of ${plural(files.length, "example")})`,
+    `\nTotal API cost: $${cost.toFixed(4)} (${plural(requests, "API request")} for ${billed} of ${plural(files.length, "example")}${unknown})`,
   );
   return ok;
 }
@@ -303,7 +309,7 @@ async function runParse(args: CliArgs, config: EngineConfig, deps: CliDeps): Pro
   let result: ParseResult;
   try {
     result = await parseFreeText(text, {
-      ...(deps.geminiClient ? { client: deps.geminiClient } : {}),
+      ...(deps.parserClient ? { client: deps.parserClient } : {}),
       env: deps.env ?? process.env,
       market: !args.noMarket,
     });
@@ -352,7 +358,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
     if (parseOnly.length > 0) throw new UsageError(`${parseOnly.join(", ")} only applies to the parse command`);
   } else {
     if (args.offline) {
-      throw new UsageError("parse calls the Gemini API, so --offline does not apply (use --no-market to skip the market call)");
+      throw new UsageError("parse calls the OpenAI API, so --offline does not apply (use --no-market to skip the market call)");
     }
     if (args.asOfYear !== undefined && !args.decide) throw new UsageError("--as-of only applies to parse together with --decide");
   }

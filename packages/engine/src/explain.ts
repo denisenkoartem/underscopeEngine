@@ -3,11 +3,22 @@
 // Decision (category scores x config weights), so the text always matches the JSON.
 
 import { join } from "node:path";
-import { CONFIRM_TITLE, OPTION_LABEL, contribution, otherOption, utility } from "./combine.js";
+import { CONFIRM_TITLE, OPTION_LABEL, TIE_EPS, contribution, otherOption, utility } from "./combine.js";
 import { PACKAGE_ROOT, type EngineConfig } from "./config.js";
-import { CATEGORIES, OPTIONS, type Category, type Decision, type FlagName, type FlagValue, type Option } from "./types.js";
+import {
+  CATEGORIES,
+  OPTIONS,
+  type Category,
+  type Decision,
+  type FlagName,
+  type FlagValue,
+  type Option,
+  type Valuation,
+} from "./types.js";
 
 export const NO_HIDDEN_RISK = "No unresolved hidden-risk flags";
+/** Start of risks[0] when verify_first was picked by tie order because no single flag moves the answer. */
+export const NO_SINGLE_CHECK = "No single check moves the answer";
 
 /** "+0.350" / "-0.105" (never "-0.000"). */
 function signed(x: number): string {
@@ -32,6 +43,16 @@ function byContribution(d: Decision, config: EngineConfig, o: Option): Category[
 
 const exclusionLine = (e: { option: Option; reason: string }) => `${OPTION_LABEL[e.option]} excluded: ${e.reason}`;
 
+/**
+ * The shared total when both options are eligible and their utilities tie (|diff| < TIE_EPS),
+ * else null. combine.ts then reports the first option (ACV) only because it comes first.
+ */
+export function deadHeatTotal(d: Decision, config: EngineConfig): number | null {
+  if (d.recommendation === null || d.excluded.length > 0) return null;
+  const [a, b] = OPTIONS.map((o) => utility(config, d.category_scores, o)) as [number, number];
+  return Math.abs(a - b) < TIE_EPS ? a : null;
+}
+
 /** Exactly 3 reasons. */
 export function buildReasons(d: Decision, config: EngineConfig): string[] {
   const rec = d.recommendation;
@@ -48,16 +69,44 @@ export function buildReasons(d: Decision, config: EngineConfig): string[] {
   }
   const lines = byContribution(d, config, rec).map((c) => categoryLine(d, config, c, rec));
   const loserExcluded = d.excluded.find((e) => e.option === otherOption(rec));
-  return loserExcluded ? [exclusionLine(loserExcluded), ...lines.slice(0, 2)] : lines.slice(0, 3);
+  if (loserExcluded) return [exclusionLine(loserExcluded), ...lines.slice(0, 2)];
+  const tie = deadHeatTotal(d, config);
+  if (tie !== null) {
+    const deadHeat = `Dead heat: both options total ${signed(tie)}; ${OPTION_LABEL[rec]} is listed only because it comes first`;
+    return [deadHeat, ...lines.slice(0, 2)];
+  }
+  return lines.slice(0, 3);
 }
 
-/** Exactly 2 risks. `counted` = the counted hidden-risk flags with their values. */
+/** risks[0] when no counted flag moves the answer and verify_first is the first one in tie order. */
+function noSingleCheckLine(counted: { flag: FlagName; value: FlagValue }[], first: string | null): string {
+  const values = [...new Set(counted.map((f) => f.value))];
+  const n = counted.length;
+  const flags = `hidden-risk flag${n === 1 ? "" : "s"}`;
+  const which =
+    values.length === 1
+      ? `${n} ${flags} ${values[0]} (${counted.map((f) => f.flag).join(", ")})`
+      : `${n} ${flags} unresolved (${counted.map((f) => `${f.flag} ${f.value}`).join(", ")})`;
+  return `${NO_SINGLE_CHECK}: ${which}; ${first ?? "none"} is verify_first only by tie order`;
+}
+
+/**
+ * Exactly 2 risks. `counted` = the counted hidden-risk flags with their values. `noMove`: no
+ * single flag moves the answer, so verify_first came from tie order alone (combine.ts); risks[0]
+ * then says so and how many flags are open.
+ */
 export function buildRisks(
   d: Decision,
   config: EngineConfig,
   counted: { flag: FlagName; value: FlagValue }[],
+  opts: { noMove?: boolean } = {},
 ): string[] {
-  const unresolved = counted.length > 0 ? `Unresolved: ${counted.map((f) => `${f.flag} (${f.value})`).join(", ")}` : null;
+  const unresolved =
+    counted.length === 0
+      ? null
+      : opts.noMove
+        ? noSingleCheckLine(counted, d.verify_first)
+        : `Unresolved: ${counted.map((f) => `${f.flag} (${f.value})`).join(", ")}`;
   const rec = d.recommendation;
   if (rec === null) {
     const none = d.excluded.map((e) => `${OPTION_LABEL[e.option]} not available: ${e.reason}`).join("; ");
@@ -135,6 +184,29 @@ function confidenceNote(d: Decision, config: EngineConfig): string {
   return `clear when the top probability >= ${config.weights.clear_threshold}`;
 }
 
+const usd = (x: number): string => `$${x.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+
+function median(xs: readonly number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+/** The explain block for the input's prices. Display only: nothing in the decision reads them. */
+export function valuationLines(v: Valuation): string[] {
+  const comps = v.salvage_comps;
+  const compsText =
+    comps.length === 0
+      ? "none"
+      : `${comps.length} (min ${usd(Math.min(...comps))}, median ${usd(median(comps))}, max ${usd(Math.max(...comps))})`;
+  return [
+    "Valuation (shown only, not used in the decision):",
+    `  Clean wholesale: ${v.clean_wholesale === null ? "not given" : usd(v.clean_wholesale)}`,
+    `  Salvage comps: ${compsText}`,
+    `  Purchase price: ${v.purchase_price === null ? "not given" : usd(v.purchase_price)}`,
+  ];
+}
+
 export function renderExplainTable(d: Decision, config: EngineConfig): string {
   const isExcluded = (o: Option) => d.excluded.some((e) => e.option === o);
   // An excluded option keeps its numbers in the categories that did not exclude it; the excluding
@@ -167,13 +239,16 @@ export function renderExplainTable(d: Decision, config: EngineConfig): string {
   const codeSources = [...bySource].map(([src, names]) => `${names.join(", ")} from ${src}`).join("; ");
   const severeWhen = codesets.severe_when.map((e) => e.join("+")).join(", ");
 
+  const tie = deadHeatTotal(d, config);
+  const byTieOrder = d.risks[0]?.startsWith(NO_SINGLE_CHECK) ?? false;
   const lines = [
     table(rows, (i) => i > 0 && i < 7),
     "",
     `Probabilities: ${OPTIONS.map(pct).join(", ")}  (${probabilityNote(d, config)})`,
-    `Recommendation: ${d.recommendation ? OPTION_LABEL[d.recommendation] : "none"}`,
+    `Recommendation: ${d.recommendation ? OPTION_LABEL[d.recommendation] : "none"}` +
+      (tie !== null ? `  (dead heat: both options total ${signed(tie)}; listed first only)` : ""),
     `Confidence: ${d.confidence}  (${confidenceNote(d, config)})`,
-    `verify_first: ${d.verify_first ?? "none"}`,
+    `verify_first: ${d.verify_first ?? "none"}` + (byTieOrder ? "  (no single check moves the answer; first in tie order)" : ""),
     `Excluded: ${d.excluded.length ? d.excluded.map((e) => `${OPTION_LABEL[e.option]}: ${e.reason}`).join("; ") : "none"}`,
     "",
     "Factors:",
@@ -183,6 +258,7 @@ export function renderExplainTable(d: Decision, config: EngineConfig): string {
     "Risks:",
     ...d.risks.map((r, i) => `  ${i + 1}. ${r}`),
     ...(d.market_signals.length ? ["Market signals:", ...d.market_signals.map((s) => `  - ${s.claim} <${s.url}>`)] : []),
+    ...(d.valuation ? valuationLines(d.valuation) : []),
     "",
     `Code sets: ${codeSources}; severe_when (${severeWhen}) from config/codesets.json`,
     `Weights version: ${d.weights_version} (${join(PACKAGE_ROOT, "config", "weights.json")})`,

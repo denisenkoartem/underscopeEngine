@@ -137,9 +137,15 @@ describe("scoreMarketFit online path", () => {
     expect(r.signals).toEqual(goodInput.signals);
     expect(r.excluded).toEqual([]);
     expect(r.fallback_reason).toBeUndefined();
-    expect(r.factors[0]).toContain("favors ACV");
+    expect(r.factors[0]).toBe("Web market analysis (anthropic claude-sonnet-5-5) favors ACV (ACV +0.60, Copart -0.10, confidence 0.70)");
     expect(r.factors.join(" ")).not.toMatch(/\$/); // prices stay inside signal claims
-    expect(r.usage).toMatchObject({ model: "claude-sonnet-5-5", requests: 1, input_tokens: 10_000, web_search_requests: 2 });
+    expect(r.usage).toMatchObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+      requests: 1,
+      input_tokens: 10_000,
+      web_search_requests: 2,
+    });
     expect(r.usage?.cost_usd).toBeCloseTo(0.05, 10); // 10k*$2 + 1k*$10 per MTok + 2 searches*$0.01
     expect(lines.filter((l) => l.startsWith("market_fit api call"))).toHaveLength(1);
     expect(lines[0]).toMatch(/input=10000 output=1000 .*searches=2 cost=\$0\.0500/);
@@ -188,11 +194,12 @@ describe("scoreMarketFit online path", () => {
   });
 
   it("falls back without calling the client when there is no API key (empty counts as missing)", async () => {
-    for (const env of [{}, { ANTHROPIC_API_KEY: "" }]) {
+    // OPENAI.md design 2 (round 4): with neither key the reason names both (was "no ANTHROPIC_API_KEY").
+    for (const env of [{}, { ANTHROPIC_API_KEY: "" }, { ANTHROPIC_API_KEY: "", OPENAI_API_KEY: "" }]) {
       const { opts, calls } = setup([reply(goodInput)], { env });
       const r = await scoreMarketFit(record, config, opts);
       expect(r.source).toBe("fallback");
-      expect(r.fallback_reason).toBe("no ANTHROPIC_API_KEY");
+      expect(r.fallback_reason).toBe("no API key (set OPENAI_API_KEY or ANTHROPIC_API_KEY)");
       expect(r.signals).toEqual([]);
       expect(r.usage).toBeUndefined();
       expect(calls).toHaveLength(0);
@@ -490,5 +497,28 @@ describe("buildMarketPrompt", () => {
     expect(p).toContain("Odometer: unknown");
     expect(p).toContain("Run status: does not run");
     expect(p).toContain("report_market_fit");
+  });
+
+  it("sends Anthropic its own tail (the tool instruction) and OpenAI the JSON tail, with the same shared text and fields", () => {
+    const anthropic = buildMarketPrompt(record);
+    const openai = buildMarketPrompt(record, undefined, "openai");
+    expect(buildMarketPrompt(record, undefined, "anthropic")).toBe(anthropic);
+    expect(anthropic).toMatch(/Do not answer in plain text; the tool call\nis the only answer that is read\.\n$/);
+    expect(openai).not.toMatch(/report_market_fit|tool call|<!--|\{\{/);
+    expect(openai).toContain("one JSON object");
+    expect(anthropic).not.toMatch(/<!--|one JSON object/);
+    // Shared text up to the tail is the same; so is the field list inside each tail.
+    const shared = (p: string) => p.slice(0, p.indexOf("this kind of vehicle.") + 21);
+    expect(shared(openai)).toBe(shared(anthropic));
+    const fields = (p: string) => p.split("\n").filter((l) => /^(- `|  )/.test(l) && !/^- (Year|Make|Model|Trim|Odometer|Location|Title|Run)/.test(l));
+    expect(fields(openai)).toEqual(fields(anthropic));
+    expect(fields(openai).filter((l) => l.startsWith("- `"))).toHaveLength(5);
+  });
+
+  it("refuses a template without the provider's tail", () => {
+    expect(() => buildMarketPrompt(record, "Year {{year}}\n<!-- tail: anthropic -->\nUse the tool.\n", "openai")).toThrow(
+      /no "<!-- tail: openai -->" section/,
+    );
+    expect(buildMarketPrompt(record, "Year {{year}}\n<!-- tail: anthropic -->\nUse the tool.\n\n")).toBe("Year 2022\nUse the tool.\n");
   });
 });

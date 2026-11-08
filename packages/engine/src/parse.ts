@@ -1,10 +1,11 @@
 // Free-text parser: turns a seller's notes ("transmission is generating noise, 2019 Ford F-150
 // XLT, 84k miles, Texas") into a full engine input record, plus an optional market_fit block
-// from a Gemini call with Google Search, plus a `parser` metadata block (evidence, unmapped notes,
-// search queries, usage).
+// from an OpenAI call with web search, plus a `parser` metadata block (evidence, unmapped notes,
+// search queries, usage). Both calls use gpt-4o-mini, always (src/openaiParse.ts PARSER_MODEL).
 //
-// Two Gemini calls at most (each retried once on invalid output), one HTTP request each per attempt:
-//  1. Extraction: structured JSON output (responseJsonSchema), no tools, low thinking.
+// Two OpenAI Responses API calls at most (each retried once on invalid output), one HTTP request
+// each per attempt:
+//  1. Extraction: strict structured JSON output (EXTRACTION_JSON_SCHEMA), no tools, temperature 0.
 //     Everything the model returns is re-checked here: an evidence quote that is not in the text
 //     resets its field to unknown, codes not literally in the text are dropped, symptom texts not
 //     in the text are dropped, and a VIN/year/make/model/trim/odometer/state the quote does not
@@ -12,10 +13,16 @@
 //     quotes need a real word; a "confirmed" code the text calls pending/history/cleared is
 //     downgraded; make/model/trim must be short plain names (they reach the market prompt).
 //     Fields the text says nothing about stay "unknown"/null/absent.
-//  2. Market fit (only when year, make and model are known): the Google Search tool, a JSON
-//     object in the reply text, validated with zod. Sends ONLY year, make, model, trim, odometer,
-//     location_state, title brand and run status: never the free text, VIN, flags, codes or
-//     symptoms.
+//  2. Market fit (only when year, make and model are known): the web_search tool and a strict
+//     JSON answer (MARKET_JSON_SCHEMA), validated with zod. Sends ONLY year, make, model, trim, odometer,
+//     location_state, title brand and run status: never the free text, VIN, flags, codes,
+//     symptoms or prices.
+//
+// Round 4b (user decisions): prices ("Clean wholesale: $4,600", "Salvage comps: $475, $600",
+// "Paid: $7,000") go into the record's `valuation` block, each number checked in code to be
+// written right after its label; the engine shows them and never scores them. "Role: ..." lines
+// are dropped before the model sees the notes (only parser.input_text keeps them). A run status
+// needs a quote that says runs / drives / starts (or towed...): a complaint alone sets nothing.
 //
 // The output (toEngineInput) is valid engine input: `pnpm -s engine decide <saved.json> --offline`.
 // Every record field is present: "unknown" (enums) or null where the text says nothing, and the
@@ -23,29 +30,33 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ThinkingLevel, type GenerateContentParameters, type GroundingChunkWeb } from "@google/genai";
+import type { Response, ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
 import { z } from "zod";
 import { ConfigError, PACKAGE_ROOT } from "./config.js";
 import {
-  DEFAULT_PARSER_MODEL,
-  GeminiError,
-  callGemini,
-  createGeminiClient,
+  PARSER_MODEL,
+  ParserApiError,
+  callOpenAI,
+  createParserClient,
   parserTimeoutMs,
-  resolveGeminiKey,
+  refusalText,
+  resolveOpenAIKey,
   responseText,
+  statusText,
+  webSearchCalls,
   type CallContext,
-  type GeminiClient,
-  type GeminiResponse,
-  type GeminiUsage,
-} from "./gemini.js";
+  type ParserClient,
+  type ParserUsage,
+} from "./openaiParse.js";
 import {
   ConditionRecordSchema,
   MAX_MARKET_SIGNALS,
+  MAX_SALVAGE_COMPS,
   MarketFitBlockSchema,
   OBD_CODE_PATTERN,
   isHttpUrl,
   type ConditionRecordInput,
+  type ValuationInput,
 } from "./input.js";
 import {
   CODE_STATUSES,
@@ -87,10 +98,10 @@ export interface ParserMeta {
   unmapped: string[];
   /** What the parser itself did: resets, dropped codes, why market fit was skipped. */
   notes: string[];
-  /** Google Search queries behind market_fit. */
+  /** Web search queries behind market_fit. */
   search_queries: string[];
-  /** One entry per successful Gemini call. */
-  usage: GeminiUsage[];
+  /** One entry per successful OpenAI request. */
+  usage: ParserUsage[];
 }
 
 export interface ParseResult {
@@ -100,16 +111,12 @@ export interface ParseResult {
 }
 
 export interface ParseOptions {
-  /** Gemini client (or a fake). Built from the key when absent. */
-  client?: GeminiClient;
+  /** OpenAI client (or a fake). Built from the key when absent. */
+  client?: ParserClient;
   /** Client factory used when `client` is absent (tests check it is never called without a key). */
-  createClient?: (apiKey: string, env: NodeJS.ProcessEnv) => GeminiClient;
-  /** Environment for GOOGLE_API_KEY / GEMINI_API_KEY / PARSER_*; defaults to process.env. */
+  createClient?: (apiKey: string, env: NodeJS.ProcessEnv) => ParserClient;
+  /** Environment for OPENAI_API_KEY / PARSER_TIMEOUT_MS; defaults to process.env. The model is always gpt-4o-mini. */
   env?: NodeJS.ProcessEnv;
-  /** Extraction model; else $PARSER_MODEL, else gemini-3.8-flash. */
-  model?: string;
-  /** Market model; else $PARSER_MARKET_MODEL, else the extraction model. */
-  marketModel?: string;
   /** Timestamp for market_fit.generated_at; defaults to new Date(). */
   now?: Date;
   /** false skips the market call. Default true. */
@@ -143,6 +150,10 @@ export const MARKET_PROMPT_PATH = join(PACKAGE_ROOT, "prompts", "parse_market.md
 export const MAX_TEXT_CHARS = 20_000;
 /** One call plus one retry on invalid output, for each of the two calls. */
 const MAX_ATTEMPTS = 2;
+/** Output cap per request. A full record is about 500 tokens; a market answer about 250. */
+const MAX_OUTPUT_TOKENS = 4_000;
+/** Built-in tool calls allowed per market request (web searches and page opens). */
+export const MARKET_MAX_TOOL_CALLS = 5;
 const MAX_SIGNALS = MAX_MARKET_SIGNALS;
 const MAX_UNMAPPED = 20;
 
@@ -150,72 +161,79 @@ const MAX_UNMAPPED = 20;
 // Extraction call
 // ---------------------------------------------------------------------------
 
-const evidenceProp = { type: "string", description: "Exact quote copied from the notes that supports the value." };
-const field = (value: Record<string, unknown>, description: string) => ({
+/**
+ * An object in OpenAI's strict structured-output form: every property required and no others
+ * allowed. A field the notes do not support is therefore present with null values, not left out.
+ */
+const strictObject = (properties: Record<string, unknown>, description?: string) => ({
   type: "object",
-  description,
-  properties: { value, evidence: evidenceProp },
-  required: ["value", "evidence"],
+  ...(description ? { description } : {}),
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
 });
-const flagField = (description: string) => field({ type: "string", enum: [...FLAG_VALUES] }, description);
+const nullable = (type: string) => ({ type: [type, "null"] });
+const nullableEnum = (values: readonly string[]) => ({ type: ["string", "null"], enum: [...values, null] });
+const nullableArray = (items: Record<string, unknown>) => ({ type: ["array", "null"], items });
+const evidenceProp = {
+  type: ["string", "null"],
+  description: "Exact quote copied from the notes that supports the value; null when the value is null.",
+};
+/** `{ value, evidence }`, both null when the notes do not support the field. */
+const field = (value: Record<string, unknown>, description: string) => strictObject({ value, evidence: evidenceProp }, description);
+const flagField = (description: string) => field(nullableEnum(FLAG_VALUES), description);
 
-/** responseJsonSchema for the extraction call. Leave a field out when the notes do not support it. */
-export const EXTRACTION_JSON_SCHEMA = {
-  type: "object",
-  properties: {
-    vin: field({ type: "string" }, "17-character VIN, only if written out in the notes."),
-    year: field({ type: "integer" }, "Model year as written."),
-    make: field({ type: "string" }, "Make as written (a nickname such as Chevy may be expanded)."),
-    model: field({ type: "string" }, "Model as written."),
-    trim: field({ type: "string" }, "Trim as written."),
-    odometer: field({ type: "integer" }, "Odometer in whole miles."),
-    location_state: field({ type: "string" }, "2-letter US state code where the vehicle is."),
-    title_brand: field({ type: "string", enum: [...TITLE_BRANDS] }, "Title brand, only when stated."),
-    title_state: field({ type: "string" }, "2-letter US state that issued the title, only when stated."),
-    runs_drives: field({ type: "string", enum: [...RUN_STATUSES] }, "Run status."),
-    flags: {
-      type: "object",
-      properties: {
-        frame: flagField("Frame or unibody damage."),
-        airbag: flagField("Airbags / SRS."),
-        flood: flagField("Water or flood damage."),
-        module_no_comm: flagField("Control modules not communicating."),
-        monitors_incomplete: flagField("Emission readiness monitors incomplete."),
-      },
-    },
-    scan_done: field({ type: "boolean" }, "true when the notes say a code scan was done (including 'no codes')."),
-    codes: {
-      type: "array",
-      description: "Diagnostic trouble codes written in the notes. Never add one that is not there.",
-      items: {
-        type: "object",
-        properties: {
-          code: { type: "string" },
-          status: { type: "string", enum: [...CODE_STATUSES] },
-          evidence: evidenceProp,
-        },
-        required: ["code", "status", "evidence"],
-      },
-    },
-    lanes_allowed: field(
-      { type: "array", items: { type: "string", enum: [...OPTIONS] } },
-      "Only when the seller limits where the vehicle may be sold.",
-    ),
-    reported_symptoms: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          system: { type: "string", enum: [...SYMPTOM_SYSTEMS] },
-          text: { type: "string", description: "The user's own words, copied exactly." },
-        },
-        required: ["system", "text"],
-      },
-    },
-    unmapped: { type: "array", items: { type: "string" } },
+/**
+ * The strict json_schema for the extraction call. Every field is present; its value and evidence
+ * are null when the notes do not support it.
+ */
+export const EXTRACTION_JSON_SCHEMA: Record<string, unknown> = strictObject({
+  vin: field(nullable("string"), "17-character VIN, only if written out in the notes."),
+  year: field(nullable("integer"), "Model year as written."),
+  make: field(nullable("string"), "Make as written (a nickname such as Chevy may be expanded)."),
+  model: field(nullable("string"), "Model as written."),
+  trim: field(nullable("string"), "Trim as written."),
+  odometer: field(nullable("integer"), "Odometer in whole miles."),
+  location_state: field(nullable("string"), "2-letter US state code where the vehicle is."),
+  title_brand: field(nullableEnum(TITLE_BRANDS), "Title brand, only when stated."),
+  title_state: field(nullable("string"), "2-letter US state that issued the title, only when stated."),
+  runs_drives: field(nullableEnum(RUN_STATUSES), "Run status."),
+  flags: strictObject({
+    frame: flagField("Frame or unibody damage."),
+    airbag: flagField("Airbags / SRS."),
+    flood: flagField("Water or flood damage."),
+    module_no_comm: flagField("Control modules not communicating."),
+    monitors_incomplete: flagField("Emission readiness monitors incomplete."),
+  }),
+  scan_done: field(nullable("boolean"), "true when the notes say a code scan was done (including 'no codes')."),
+  codes: {
+    type: "array",
+    description: "Diagnostic trouble codes written in the notes. Never add one that is not there.",
+    items: strictObject({
+      code: { type: "string" },
+      status: { type: "string", enum: [...CODE_STATUSES] },
+      evidence: { type: "string", description: "Exact quote copied from the notes that shows the code." },
+    }),
   },
-  required: ["codes", "reported_symptoms", "unmapped"],
-} as const;
+  lanes_allowed: field(
+    nullableArray({ type: "string", enum: [...OPTIONS] }),
+    "Only when the seller limits where the vehicle may be sold.",
+  ),
+  reported_symptoms: {
+    type: "array",
+    items: strictObject({
+      system: { type: "string", enum: [...SYMPTOM_SYSTEMS] },
+      text: { type: "string", description: "The user's own words, copied exactly." },
+    }),
+  },
+  clean_wholesale: field(nullable("number"), "Clean wholesale value in USD, only when stated ('Clean wholesale: $4,600' -> 4600)."),
+  salvage_comps: field(
+    nullableArray({ type: "number" }),
+    "Comparable salvage sale prices in USD, every one listed, in order ('Salvage comps: $475, $600' -> [475, 600]).",
+  ),
+  purchase_price: field(nullable("number"), "What the seller paid in USD ('Paid: $7,000', 'bought it for 7k' -> 7000)."),
+  unmapped: { type: "array", items: { type: "string" } },
+});
 
 const fieldOf = <T extends z.ZodType>(value: T) =>
   z.object({ value: value.nullish(), evidence: z.string().nullish() }).nullish();
@@ -249,6 +267,9 @@ const ExtractionSchema = z.object({
     .nullish(),
   lanes_allowed: fieldOf(z.array(z.enum(OPTIONS))),
   reported_symptoms: z.array(z.object({ system: z.string(), text: z.string() })).nullish(),
+  clean_wholesale: fieldOf(z.number()),
+  salvage_comps: fieldOf(z.array(z.number())),
+  purchase_price: fieldOf(z.number()),
   unmapped: z.array(z.string()).nullish(),
 });
 type Extraction = z.infer<typeof ExtractionSchema>;
@@ -267,31 +288,45 @@ function loadPrompt(path: string): string {
 const issuesText = (error: z.ZodError): string =>
   error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
 
+/** The extraction request: the prompt as instructions, the notes as input, a strict JSON schema. */
+export function buildExtractionRequest(model: string, text: string): ResponseCreateParamsNonStreaming {
+  return {
+    model,
+    instructions: loadPrompt(RECORD_PROMPT_PATH),
+    input: `<notes>\n${text}\n</notes>`,
+    text: {
+      format: { type: "json_schema", name: "condition_record", strict: true, schema: EXTRACTION_JSON_SCHEMA },
+    },
+    temperature: 0,
+    max_output_tokens: MAX_OUTPUT_TOKENS,
+    // Nothing reads the response later (no previous_response_id), so OpenAI need not keep it.
+    store: false,
+  };
+}
+
+/** Why a response holds no usable answer (refused, cut off, empty), or null when it has text. */
+function unusableReply(res: Response): string | null {
+  const refusal = refusalText(res);
+  if (refusal !== undefined) return `model refused (${refusal.replace(/\s+/g, " ").trim().slice(0, 200)})`;
+  if (res.status !== undefined && res.status !== "completed") return `response ${statusText(res)}`;
+  if (responseText(res).trim() === "") return `empty reply (status ${statusText(res)})`;
+  return null;
+}
+
 /** Structured-output extraction, retried once on unusable output. */
 async function runExtraction(ctx: CallContext, model: string, text: string): Promise<Extraction> {
-  const params: GenerateContentParameters = {
-    model,
-    contents: [{ role: "user", parts: [{ text: `<notes>\n${text}\n</notes>` }] }],
-    config: {
-      systemInstruction: loadPrompt(RECORD_PROMPT_PATH),
-      responseMimeType: "application/json",
-      responseJsonSchema: EXTRACTION_JSON_SCHEMA,
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-      // One HTTP request per call: the SDK would otherwise resend on finish CONTINUATION without
-      // a cap or a log line. A cut-off reply fails the JSON check and gets the one retry instead.
-      automaticContinuation: false,
-    },
-  };
+  const body = buildExtractionRequest(model, text);
   let problem = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const res = await callOrThrow(ctx, attempt === 1 ? "extraction" : "extraction retry", params);
-    problem = "";
-    const raw = responseText(res).trim();
+    const res = await callOrThrow(ctx, attempt === 1 ? "extraction" : "extraction retry", body);
+    problem = unusableReply(res) ?? "";
     let json: unknown;
-    try {
-      json = JSON.parse(stripFence(raw));
-    } catch {
-      problem = raw ? "reply is not valid JSON" : `empty reply (finish ${res.candidates?.[0]?.finishReason ?? "none"})`;
+    if (!problem) {
+      try {
+        json = JSON.parse(stripFence(responseText(res).trim()));
+      } catch {
+        problem = "reply is not valid JSON";
+      }
     }
     if (!problem) {
       const parsed = ExtractionSchema.safeParse(json);
@@ -300,14 +335,14 @@ async function runExtraction(ctx: CallContext, model: string, text: string): Pro
     }
     ctx.log(`parse: extraction attempt ${attempt}: ${problem}${attempt < MAX_ATTEMPTS ? "; retrying once" : ""}`);
   }
-  throw new ParseError(`Gemini returned invalid extraction output twice (${problem.slice(0, 200)})`);
+  throw new ParseError(`OpenAI returned invalid extraction output twice (${problem.slice(0, 200)})`);
 }
 
-async function callOrThrow(ctx: CallContext, label: string, params: GenerateContentParameters): Promise<GeminiResponse> {
+async function callOrThrow(ctx: CallContext, label: string, body: ResponseCreateParamsNonStreaming): Promise<Response> {
   try {
-    return await callGemini(ctx, label, params);
+    return await callOpenAI(ctx, label, body);
   } catch (e) {
-    if (e instanceof GeminiError) throw new ParseError(e.message);
+    if (e instanceof ParserApiError) throw new ParseError(e.message);
     throw e;
   }
 }
@@ -328,6 +363,20 @@ function norm(s: string): string {
     .replace(/[‘’ʼ]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * norm() that keeps line breaks: a whitespace run with a newline becomes "\n", any other run " ".
+ * Same length and offsets as norm(), so positions found in one are valid in the other.
+ */
+function normLines(s: string): string {
+  return s
+    .normalize("NFKC")
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, (ws) => (ws.includes("\n") ? "\n" : " "))
     .trim()
     .toLowerCase();
 }
@@ -466,6 +515,28 @@ const TITLE_BRAND_WORDS: Record<Exclude<TitleBrand, "unknown">, { re: RegExp; sa
   },
 };
 
+/**
+ * A run-status quote must say whether the vehicle runs, drives or starts (or is towed / trailered
+ * / inoperable). A complaint alone ("transmission is generating noise") says nothing about it: seen
+ * live on 2026-11-07, that quote was mapped to run_and_drive. Spanish forms seen in notes count.
+ */
+const RUN_STATUS_WORDS = new RegExp(
+  "(?<![\\p{L}\\p{N}])(?:" +
+    [
+      "runs?", "running", "ran", "runner", "non-?runner",
+      "(?<!wheel[ -])drives?(?! ?(?:shaft|line|train|belt|axle))", "driving", "drove", "driven", "drivable", "driveable",
+      "daily driver",
+      "starts?", "started", "starting", "cranks?", "cranking", "cranked", "turns? over", "fires? up",
+      "idles?", "idling", "stall(?:s|ed|ing)?",
+      "towed", "towing", "needs? a tow", "tow truck", "on a trailer", "trailered",
+      "moves?", "moving", "inop", "inoperable", "operable", "r&d", "r/d",
+      "arranca", "prende", "enciende", "camina", "anda", "funciona", "maneja", "remolcad[oa]", "gr[u\u00fa]a",
+    ].join("|") +
+    ")(?![\\p{L}\\p{N}])",
+  "iu",
+);
+const RUN_STATUS_SAYS = "whether it runs, drives or starts (runs, drives, starts, won't start, cranks, towed...)";
+
 /** A lane limit's quote must name each allowed lane. */
 const LANE_WORDS: Record<Option, { re: RegExp; says: string }> = {
   acv: { re: /dealer|\bacv\b/i, says: '"dealer" or "ACV"' },
@@ -490,6 +561,141 @@ export function vehicleNameProblem(value: string, symptomTexts: readonly string[
   const symptom = symptomTexts.find((s) => norm(s) !== "" && n.includes(norm(s)));
   if (symptom !== undefined) return `${shown} contains the reported symptom ${JSON.stringify(symptom)}`;
   return null;
+}
+
+// ---- prices (valuation) ----------------------------------------------------------------------
+
+type PriceField = "clean_wholesale" | "salvage_comps" | "purchase_price";
+const PRICE_FIELDS: readonly PriceField[] = ["clean_wholesale", "salvage_comps", "purchase_price"];
+
+/**
+ * The label a price must follow (on the normalized, lower-case text). "Mileage: 115,000 at
+ * purchase" names no price: "purchase" alone is not a label, "purchase price" is.
+ */
+const PRICE_LABELS: Record<PriceField, { re: RegExp; says: string }> = {
+  clean_wholesale: { re: /(?<![a-z])wholesale(?![a-z])/g, says: '"wholesale"' },
+  salvage_comps: { re: /(?<![a-z])(?:comps?|comparables?)(?![a-z])/g, says: '"comps"' },
+  purchase_price: {
+    re: /(?<![a-z])(?:paid|purchase price|(?:bought|purchased)(?: it)? for)(?![a-z])/g,
+    says: '"paid", "purchase price" or "bought for"',
+  },
+};
+
+/**
+ * A number as written: $4,600 / 4600 / $1,150.50 / 7k / $4.6k. Not part of a token such as 2.0L,
+ * F-150 or 3MZ...: no letter, digit or decimal point right before, no letter or digit right after.
+ */
+const MONEY = /(?<![\p{L}\p{N}.,])(\$ ?)?(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?( ?k)?(?![\p{L}\p{N}]|[.,]\d)/gu;
+
+interface Money {
+  value: number;
+  dollar: boolean;
+  /** Offsets of the number itself (without the $), in the normalized text. */
+  start: number;
+  end: number;
+}
+
+/** The numbers written in t[from, to). */
+function moneyIn(t: string, from: number, to: number): Money[] {
+  const out: Money[] = [];
+  const part = t.slice(from, to);
+  for (const m of part.matchAll(MONEY)) {
+    const lead = m[1] ?? "";
+    const raw = Number(m[2]!.replace(/,/g, "") + (m[3] ?? ""));
+    const value = Math.round(raw * (m[4] ? 1000 : 1) * 100) / 100;
+    const start = from + m.index + lead.length;
+    out.push({ value, dollar: lead !== "", start, end: from + m.index + m[0].length });
+  }
+  return out;
+}
+
+/**
+ * For each label of `field` in the text: the numbers in its segment, i.e. from the end of the
+ * label to the next | ; or line break, or the next price label of any field ("Paid: $7,000 Clean
+ * wholesale: $4,600" gives two segments). When a segment has $-amounts only those count, so in
+ * "Clean wholesale for a 2014 is $4,600" the 2014 is not a price.
+ */
+function priceSegments(field: PriceField, t: string): Money[][] {
+  const labels = PRICE_FIELDS.flatMap((f) => [...t.matchAll(PRICE_LABELS[f].re)].map((m) => ({ f, at: m.index, end: m.index + m[0].length })));
+  const segments: Money[][] = [];
+  for (const l of labels.filter((x) => x.f === field)) {
+    const brk = t.slice(l.end).search(/[|;\n]/);
+    let to = brk < 0 ? t.length : l.end + brk;
+    for (const other of labels) if (other.at >= l.end && other.at < to) to = other.at;
+    const all = moneyIn(t, l.end, to);
+    const dollars = all.filter((m) => m.dollar);
+    segments.push(dollars.length > 0 ? dollars : all);
+  }
+  return segments;
+}
+
+const usdText = (x: number): string => `$${x.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+
+/** The quote's occurrences in the normalized text, as [start, end) ranges. */
+function quoteRanges(quote: string, text: string): [number, number][] {
+  const q = norm(cleanQuote(quote));
+  return quoteOffsets(q, norm(text)).map((at) => [at, at + q.length]);
+}
+const inside = (m: Money, ranges: [number, number][]) => ranges.some(([a, b]) => a <= m.start && m.end <= b);
+
+/**
+ * Why a single price (clean_wholesale, purchase_price) is not the first amount written after its
+ * label, inside the quote; null when it is.
+ */
+function singlePriceProblem(field: PriceField, value: number, quote: string, text: string): string | null {
+  if (!Number.isFinite(value) || value < 0) return `${value} is not a price`;
+  const firsts = priceSegments(field, normLines(text))
+    .map((seg) => seg[0])
+    .filter((m): m is Money => m !== undefined && m.value === value);
+  if (firsts.length === 0) return `${usdText(value)} is not the amount written right after ${PRICE_LABELS[field].says} in the text`;
+  const ranges = quoteRanges(quote, text);
+  return firsts.some((m) => inside(m, ranges)) ? null : `quote ${JSON.stringify(quote)} does not show ${usdText(value)}`;
+}
+
+/**
+ * The comps that are written after a comps label inside the quote (each amount used once), and the
+ * ones that are not.
+ */
+function matchComps(values: number[], quote: string, text: string): { kept: number[]; dropped: number[] } {
+  const ranges = quoteRanges(quote, text);
+  const pool = priceSegments("salvage_comps", normLines(text)).flat().filter((m) => inside(m, ranges));
+  const kept: number[] = [];
+  const dropped: number[] = [];
+  for (const v of values) {
+    const i = Number.isFinite(v) && v >= 0 ? pool.findIndex((m) => m.value === v) : -1;
+    if (i < 0) dropped.push(v);
+    else {
+      pool.splice(i, 1);
+      kept.push(v);
+    }
+  }
+  return { kept, dropped };
+}
+
+// ---- "Role: ..." lines -------------------------------------------------------------------------
+
+/** A "Role: ..." line or "| Role: ..." segment (optionally after a bullet or a list number). */
+const ROLE_START = /(?:^|\|)[^\S\n]*(?:(?:[-*\u2022]|\d+[.)])[^\S\n]*)?role[^\S\n]*:/i;
+
+/**
+ * Drop every "Role: ..." line (and a "| Role: ..." tail) from the notes. User decision (round 4b):
+ * "neglect it. it doesn't mean anything", so the model never sees them and nothing is mapped,
+ * listed as unmapped or noted from them. `removed` holds the dropped text, for the unmapped filter.
+ */
+export function stripRoleLines(text: string): { text: string; removed: string[] } {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = ROLE_START.exec(line);
+    if (!m) {
+      kept.push(line);
+      continue;
+    }
+    removed.push(line.slice(m.index).replace(/^\|/, "").trim());
+    const before = line.slice(0, m.index).trimEnd();
+    if (before.trim() !== "") kept.push(before);
+  }
+  return removed.length === 0 ? { text, removed } : { text: kept.join("\n").trim(), removed };
 }
 
 /** OBD-II code shape inside free text (not part of a longer word). */
@@ -553,8 +759,16 @@ interface Verified {
   notes: string[];
 }
 
-/** Apply the evidence rules to the model's answer and build the engine record. */
-export function verifyExtraction(x: Extraction, text: string, log: (line: string) => void): Verified {
+/**
+ * Apply the evidence rules to the model's answer and build the engine record. `text` is the notes
+ * the model saw (Role lines already dropped); `roleLines` is what stripRoleLines removed.
+ */
+export function verifyExtraction(
+  x: Extraction,
+  text: string,
+  log: (line: string) => void,
+  roleLines: readonly string[] = [],
+): Verified {
   const evidence: Record<string, string> = {};
   const notes: string[] = [];
   const unknown: string[] = [];
@@ -635,7 +849,11 @@ export function verifyExtraction(x: Extraction, text: string, log: (line: string
     return !want || want.re.test(q) ? null : `quote ${JSON.stringify(q)} does not say ${want.says}`;
   }) as TitleBrand | undefined;
   const title_state = stateOf("title.state", x.title_state);
-  const runs = accept("runs_drives", x.runs_drives, noWordProblem) as RunStatus | undefined;
+  // A run status needs a quote that says runs / drives / starts: "transmission is generating
+  // noise" alone is a symptom, not a run status (round 4b).
+  const runs = accept("runs_drives", x.runs_drives, (v, q) =>
+    noWordProblem(v, q) ?? (RUN_STATUS_WORDS.test(q) ? null : `quote ${JSON.stringify(q)} does not say ${RUN_STATUS_SAYS}`),
+  ) as RunStatus | undefined;
 
   const flags = {} as Record<FlagName, FlagValue>;
   for (const f of FLAG_NAMES) flags[f] = (accept(`flags.${f}`, x.flags?.[f], noWordProblem) as FlagValue | undefined) ?? "unknown";
@@ -720,7 +938,39 @@ export function verifyExtraction(x: Extraction, text: string, log: (line: string
     symptoms.push({ system, text: words });
   }
 
-  const unmapped = [...new Set((x.unmapped ?? []).map((u) => u.trim().slice(0, 200)).filter(Boolean))].slice(0, MAX_UNMAPPED);
+  // Prices: each number must be written right after its label, inside the quote. Display only:
+  // the engine never scores them, and they never reach a market prompt (marketProfile).
+  const clean_wholesale = accept("valuation.clean_wholesale", x.clean_wholesale, (v, q) => singlePriceProblem("clean_wholesale", v, q, text));
+  const compsField = x.salvage_comps?.value?.length ? x.salvage_comps : undefined;
+  let compsMatch: { kept: number[]; dropped: number[] } = { kept: [], dropped: [] };
+  accept("valuation.salvage_comps", compsField, (v, q) => {
+    compsMatch = matchComps(v, q, text);
+    return compsMatch.kept.length > 0
+      ? null
+      : `none of ${v.map(usdText).join(", ")} is written after ${PRICE_LABELS.salvage_comps.says} in the quote`;
+  });
+  for (const d of compsMatch.dropped) warn(`valuation.salvage_comps: ${usdText(d)} is not written after "comps" in the quote; that comp dropped`);
+  if (compsMatch.kept.length > MAX_SALVAGE_COMPS) {
+    warn(`valuation.salvage_comps: ${compsMatch.kept.length} comps; only the first ${MAX_SALVAGE_COMPS} kept`);
+  }
+  const salvage_comps = compsMatch.kept.slice(0, MAX_SALVAGE_COMPS);
+  const purchase_price = accept("valuation.purchase_price", x.purchase_price, (v, q) => singlePriceProblem("purchase_price", v, q, text));
+  const valuation: ValuationInput | null =
+    clean_wholesale !== undefined || salvage_comps.length > 0 || purchase_price !== undefined
+      ? {
+          clean_wholesale: clean_wholesale ?? null,
+          salvage_comps: salvage_comps.length > 0 ? salvage_comps : null,
+          purchase_price: purchase_price ?? null,
+        }
+      : null;
+
+  // Unmapped notes, never one that comes from a Role line (round 4b: ignored completely).
+  const fromRoleLine = (u: string) =>
+    ROLE_START.test(u) || (!quoteInText(u, text) && roleLines.some((r) => quoteInText(u, r)));
+  const unmapped = [...new Set((x.unmapped ?? []).map((u) => u.trim().slice(0, 200)).filter((u) => u !== "" && !fromRoleLine(u)))].slice(
+    0,
+    MAX_UNMAPPED,
+  );
 
   const record: ParsedRecord = {
     vin: vin ?? null,
@@ -734,9 +984,11 @@ export function verifyExtraction(x: Extraction, text: string, log: (line: string
     codes: codes.length > 0 || scanDone ? codes : null,
     seller: { lanes_allowed: lanesAllowed ?? null },
     reported_symptoms: symptoms,
+    // null = the notes give no price. Shown in the Decision, never scored.
+    valuation,
   };
-  // No lane limit is the default (both lanes), not an unknown.
-  const unknown_fields = unknown.filter((p) => p !== "seller.lanes_allowed");
+  // No lane limit is the default (both lanes), not an unknown; prices are not vehicle facts.
+  const unknown_fields = unknown.filter((p) => p !== "seller.lanes_allowed" && !p.startsWith("valuation."));
   return { record, field_evidence: evidence, unknown_fields, unmapped, notes };
 }
 
@@ -744,7 +996,10 @@ export function verifyExtraction(x: Extraction, text: string, log: (line: string
 // Market-fit call
 // ---------------------------------------------------------------------------
 
-/** Exactly what the market call may see. Nothing else from the record or the text is sent. */
+/**
+ * Exactly what the market call may see. Nothing else from the record or the text is sent: never
+ * the notes, VIN, flags, codes, symptoms or prices (valuation).
+ */
 export interface MarketProfile {
   year: number;
   make: string;
@@ -805,6 +1060,36 @@ export function buildParseMarketPrompt(p: MarketProfile, template: string = load
 }
 
 /**
+ * The strict json_schema of the market answer. Ranges are not in it (strict mode does not
+ * enforce them); MarketReportSchema checks them.
+ */
+export const MARKET_JSON_SCHEMA: Record<string, unknown> = strictObject({
+  acv: { type: "number", description: "-1 to +1: how well dealer wholesale (ACV) fits this vehicle's market." },
+  copart: { type: "number", description: "-1 to +1: how well salvage auction (Copart) fits this vehicle's market." },
+  confidence: { type: "number", description: "0 to 1: how much relevant, recent, consistent evidence was found." },
+  signals: {
+    type: "array",
+    description: "Up to five findings, each with the URL of the page it came from.",
+    items: strictObject({ claim: { type: "string" }, url: { type: "string" } }),
+  },
+  insufficient: { type: "boolean", description: "true when too little relevant evidence was found to judge." },
+});
+
+/** The market request: web search (sources included in the response), then the strict JSON answer. */
+export function buildMarketRequest(model: string, prompt: string): ResponseCreateParamsNonStreaming {
+  return {
+    model,
+    input: prompt,
+    tools: [{ type: "web_search" }],
+    include: ["web_search_call.action.sources"],
+    max_tool_calls: MARKET_MAX_TOOL_CALLS,
+    text: { format: { type: "json_schema", name: "market_fit", strict: true, schema: MARKET_JSON_SCHEMA } },
+    max_output_tokens: MAX_OUTPUT_TOKENS,
+    store: false,
+  };
+}
+
+/**
  * The model's reply: the engine's own acv/copart/confidence/insufficient rules (MarketFitBlockSchema),
  * so out-of-range scores fail validation (retry, then omit). Not strict, and signals are lenient
  * here: a signal without a claim or an http(s) URL is dropped by cleanSignals, not an error.
@@ -838,25 +1123,21 @@ const hostOf = (url: string): string => {
   }
 };
 
-/** A signal URL matches a grounding chunk by URL, or by domain == the chunk's title/domain. */
-function matchesChunk(url: string, chunks: GroundingChunkWeb[]): boolean {
+/** A signal URL matches a web search source by URL, or by host (a page on a site the search saw). */
+function matchesSource(url: string, sources: string[]): boolean {
   const host = hostOf(url);
-  return chunks.some((c) => {
-    if (c.uri && c.uri === url) return true;
-    const names = [c.title, c.domain].filter((n): n is string => !!n).map((n) => n.toLowerCase().replace(/^www\./, ""));
-    return host !== "" && names.some((n) => host === n || host.endsWith(`.${n}`));
-  });
+  return sources.some((s) => s === url || (host !== "" && hostOf(s) === host));
 }
 
-/** Keep signals with a claim and an http(s) URL; grounded ones first; at most 5. */
-function cleanSignals(raw: MarketReport["signals"], chunks: GroundingChunkWeb[], warn: (m: string) => void) {
+/** Keep signals with a claim and an http(s) URL; ones the web search saw first; at most 5. */
+function cleanSignals(raw: MarketReport["signals"], sources: string[], warn: (m: string) => void) {
   const kept = raw
     .map((s) => ({ claim: s.claim.trim(), url: (s.url ?? "").trim() }))
     .filter((s) => s.claim !== "" && isHttpUrl(s.url));
   if (kept.length < raw.length) warn(`market fit: dropped ${raw.length - kept.length} signal(s) without a claim or an http(s) URL`);
-  const grounded = kept.filter((s) => matchesChunk(s.url, chunks));
-  const other = kept.filter((s) => !matchesChunk(s.url, chunks));
-  return [...grounded, ...other].slice(0, MAX_SIGNALS);
+  const seen = kept.filter((s) => matchesSource(s.url, sources));
+  const other = kept.filter((s) => !matchesSource(s.url, sources));
+  return [...seen, ...other].slice(0, MAX_SIGNALS);
 }
 
 type MarketOutcome = { kind: "ok"; block: ProvidedMarketFit } | { kind: "invalid"; problem: string };
@@ -866,7 +1147,7 @@ const FATAL_MARKET_STATUS = new Set([401, 402, 403, 404]);
 
 /**
  * The market call. `block` on success; `problem` when market_fit is left out with a note
- * (invalid output twice, no grounding, 429, 5xx, network); `fatal` for a 401/402/403/404.
+ * (invalid output twice, no web search, 429, 5xx, network); `fatal` for a 401/402/403/404.
  */
 async function runMarket(
   ctx: CallContext,
@@ -879,30 +1160,14 @@ async function runMarket(
   const prompt = buildParseMarketPrompt(profile);
   let problem = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const text = attempt === 1 ? prompt : `${prompt}\n\nYour previous reply could not be used (${problem}). Reply with only the JSON object described above.`;
-    const params: GenerateContentParameters = {
-      model,
-      contents: [{ role: "user", parts: [{ text }] }],
-      config: {
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        automaticContinuation: false, // one HTTP request per call (see runExtraction)
-      },
-    };
-    let res: GeminiResponse;
+    const text = attempt === 1 ? prompt : `${prompt}\n\nYour previous reply could not be used (${problem}). Search the web first, then answer.`;
+    let res: Response;
     try {
-      res = await callGemini(ctx, attempt === 1 ? "market" : "market retry", params);
+      res = await callOpenAI(ctx, attempt === 1 ? "market" : "market retry", buildMarketRequest(model, text));
     } catch (e) {
-      if (!(e instanceof GeminiError)) throw e;
-      // Key, credits, permission or model problems: the user must act (PARSER.md: exit 1).
+      if (!(e instanceof ParserApiError)) throw e;
+      // Key, permission or model problems: the user must act (PARSER.md: exit 1).
       if (e.status !== undefined && FATAL_MARKET_STATUS.has(e.status)) return { fatal: e.message };
-      if (e.status === 429) {
-        return {
-          problem:
-            `${e.message}; the market call uses Google Search grounding, which may have its own quota ` +
-            "on the key (--no-market skips this call)",
-        };
-      }
       return { problem: e.message };
     }
     const outcome = readMarketReply(res, model, now, queries, warn);
@@ -914,18 +1179,25 @@ async function runMarket(
 }
 
 function readMarketReply(
-  res: GeminiResponse,
+  res: Response,
   model: string,
   now: Date,
   queries: string[],
   warn: (m: string) => void,
 ): MarketOutcome {
-  const grounding = res.candidates?.[0]?.groundingMetadata;
-  for (const q of grounding?.webSearchQueries ?? []) if (!queries.includes(q)) queries.push(q);
-  const chunks = (grounding?.groundingChunks ?? []).map((c) => c.web).filter((w): w is GroundingChunkWeb => !!w);
-  if ((grounding?.webSearchQueries?.length ?? 0) === 0 && chunks.length === 0) {
-    return { kind: "invalid", problem: "no Google Search grounding in the reply" };
+  const unusable = unusableReply(res);
+  if (unusable) return { kind: "invalid", problem: unusable };
+  // An answer with no completed web search behind it is not market evidence.
+  const searches = webSearchCalls(res).filter((c) => c.status === "completed");
+  const sources: string[] = [];
+  for (const c of searches) {
+    const a = c.action;
+    if (a?.type === "search") {
+      for (const q of [...(a.queries ?? []), ...(a.query ? [a.query] : [])]) if (q && !queries.includes(q)) queries.push(q);
+      for (const s of a.sources ?? []) if (s.url) sources.push(s.url);
+    } else if ((a?.type === "open_page" || a?.type === "find_in_page") && a.url) sources.push(a.url);
   }
+  if (searches.length === 0) return { kind: "invalid", problem: "no web search before the answer" };
   let json: unknown;
   try {
     json = extractJsonObject(responseText(res));
@@ -939,9 +1211,9 @@ function readMarketReply(
     acv: r.acv,
     copart: r.copart,
     confidence: r.confidence,
-    signals: cleanSignals(r.signals, chunks, warn),
+    signals: cleanSignals(r.signals, sources, warn),
     insufficient: r.insufficient,
-    provider: `${model} + Google Search`,
+    provider: `${model} + OpenAI web search`,
     generated_at: now.toISOString(),
   };
   // The engine's own input check, so the printed JSON is always accepted by `decide`.
@@ -956,10 +1228,10 @@ function readMarketReply(
 
 /**
  * Parse free text into engine input. Throws ParseError (one-line message) on: empty or too long
- * text, a missing GOOGLE_API_KEY (before any client is built), Gemini API errors on the
+ * text, a missing OPENAI_API_KEY (before any client is built), OpenAI API errors on the
  * extraction call (after one retry for transient ones), invalid extraction output twice, and a
  * 401/402/403/404 on the market call (that error carries the record as `partial`). Other
- * market-call problems (invalid output twice, no grounding, 429, 5xx, network) do not throw:
+ * market-call problems (invalid output twice, no web search, 429, 5xx, network) do not throw:
  * market_fit is left out and parser.notes says why.
  */
 export async function parseFreeText(text: string, opts: ParseOptions = {}): Promise<ParseResult> {
@@ -969,17 +1241,18 @@ export async function parseFreeText(text: string, opts: ParseOptions = {}): Prom
     throw new ParseError(`the text is ${input.length} characters; the parser takes at most ${MAX_TEXT_CHARS}`);
   }
   const env = opts.env ?? process.env;
-  const apiKey = resolveGeminiKey(env);
+  const apiKey = resolveOpenAIKey(env);
   if (!apiKey) {
-    throw new ParseError(
-      "GOOGLE_API_KEY is not set: add GOOGLE_API_KEY=... to .env at the repo root or in packages/engine (GEMINI_API_KEY also works)",
-    );
+    throw new ParseError("OPENAI_API_KEY is not set: add OPENAI_API_KEY=... to .env at the repo root or in packages/engine");
   }
   const log = opts.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
-  const model = opts.model ?? (env.PARSER_MODEL || DEFAULT_PARSER_MODEL);
-  const marketModel = opts.marketModel ?? (env.PARSER_MARKET_MODEL || model);
+  // One model for both calls, always (user decision, 2026-11-07); the old Gemini overrides are ignored.
+  const model = PARSER_MODEL;
+  for (const k of ["PARSER_MODEL", "PARSER_MARKET_MODEL"] as const) {
+    if (env[k]) log(`parse: WARNING ${k} is set but ignored: the parser always uses ${PARSER_MODEL}`);
+  }
   const ctx: CallContext = {
-    client: opts.client ?? (opts.createClient ?? createGeminiClient)(apiKey, env),
+    client: opts.client ?? (opts.createClient ?? createParserClient)(apiKey, env),
     log,
     usage: [],
     timeoutMs: parserTimeoutMs(env, log),
@@ -988,8 +1261,12 @@ export async function parseFreeText(text: string, opts: ParseOptions = {}): Prom
     ...(opts.sleep ? { sleep: opts.sleep } : {}),
   };
 
-  const extraction = await runExtraction(ctx, model, input);
-  const v = verifyExtraction(extraction, input, log);
+  // "Role: ..." lines mean nothing for the record (user decision): the model never sees them,
+  // and only parser.input_text keeps them.
+  const { text: notes, removed: roleLines } = stripRoleLines(input);
+  if (notes === "") throw new ParseError('parse needs some text besides "Role:" lines, which the parser ignores');
+  const extraction = await runExtraction(ctx, model, notes);
+  const v = verifyExtraction(extraction, notes, log, roleLines);
   // The engine's own input check (before the paid market call), so the printed JSON is always
   // accepted by `decide`. It can only fail on a bug in verifyExtraction.
   const recordCheck = ConditionRecordSchema.safeParse(v.record);
@@ -1016,12 +1293,12 @@ export async function parseFreeText(text: string, opts: ParseOptions = {}): Prom
     const missing = (["year", "make", "model"] as const).filter((k) => v.record.decoded?.[k] == null);
     parser.notes.push(`market fit skipped: it needs year, make and model, and the text does not give ${missing.join(", ")}`);
   } else {
-    parser.market_model = marketModel;
+    parser.market_model = model;
     const warn = (msg: string) => {
       parser.notes.push(msg);
       log(`parse: WARNING ${msg}`);
     };
-    const { block, problem, fatal } = await runMarket(ctx, marketModel, profile, opts.now ?? new Date(), parser.search_queries, warn);
+    const { block, problem, fatal } = await runMarket(ctx, model, profile, opts.now ?? new Date(), parser.search_queries, warn);
     if (block) result.market_fit = block;
     else if (fatal) {
       parser.notes.push(`market fit omitted: ${fatal}`);

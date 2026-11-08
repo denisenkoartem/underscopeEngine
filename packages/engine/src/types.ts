@@ -85,7 +85,13 @@ export interface MarketSignal {
   url: string;
 }
 
+/** Which API produced a web market-fit result. */
+export const MARKET_PROVIDERS = ["anthropic", "openai"] as const;
+export type MarketProvider = (typeof MARKET_PROVIDERS)[number];
+
 export interface MarketUsage {
+  /** Absent on results written before the OpenAI provider existed (treat as "anthropic"). */
+  provider?: MarketProvider;
   model: string;
   /** API requests behind this result (retries and pause_turn continuations each count). */
   requests: number;
@@ -131,4 +137,20 @@ export interface Decision {
   market_signals: MarketSignal[];
   weights_version: number;
   excluded: { option: Option; reason: string }[];
+  /** Prices the input carried, echoed for display. NOT used in any score or probability (v1). */
+  valuation: Valuation | null;
+}
+
+/**
+ * Optional prices from the input record (e.g. from the codes team's notes). Carried through
+ * to the Decision and the explain table only; the decision math never reads them (user decision,
+ * round 4). Repair costs and price bands are a later version.
+ */
+export interface Valuation {
+  /** Clean-condition wholesale value, USD. */
+  clean_wholesale: number | null;
+  /** Comparable salvage sale prices, USD, as given. */
+  salvage_comps: number[];
+  /** What the seller paid, USD. */
+  purchase_price: number | null;
 }

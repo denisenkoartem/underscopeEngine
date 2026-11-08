@@ -2,9 +2,9 @@
 
 ## What it does
 
-1. It reads one JSON record of a damaged vehicle: title, run status, five hidden-risk flags, scanner codes, seller lanes and reported symptoms. The record can be written by hand or by the [free-text parser](#free-text-parser-gemini), which turns notes such as "transmission is generating noise" into a record.
+1. It reads one JSON record of a damaged vehicle: title, run status, five hidden-risk flags, scanner codes, seller lanes and reported symptoms. The record can be written by hand or by the [free-text parser](#free-text-parser-openai-gpt-4o-mini), which turns notes such as "transmission is generating noise" into a record.
 2. It scores two sale options, ACV (dealer wholesale) and Copart (as-is salvage), in four categories: title, drivable, hidden_risk and market_fit. Each score runs from -1 to +1 and has a confidence.
-3. market_fit comes from the record's own `market_fit` block when it has one that is not "insufficient" (the parser writes it with Gemini and Google Search). Otherwise it comes from one Anthropic API call with web search, cached for 7 days, or from a fallback table when the engine runs offline, has no key, the call fails, or the search finds too little.
+3. market_fit comes from the record's own `market_fit` block when it has one that is not "insufficient" (the parser writes it with OpenAI `gpt-4o-mini` and web search). Otherwise it comes from one Anthropic API call with web search, cached for 7 days, or from a fallback table when the engine runs offline, has no key, the call fails, or the search finds too little.
 4. The combiner applies hard exclusions, sums weight x score x confidence for each option, and turns the two sums into probabilities with a softmax.
 5. It returns a Decision: a recommendation, probabilities, a confidence (clear, close_call or insufficient), the one thing to verify first, and reasons and risks built from the numbers.
 
@@ -28,7 +28,7 @@ pnpm -s engine explain <file.json> [--offline] [--as-of <year>]   # contribution
 pnpm -s engine market  <file.json> [--offline] [--as-of <year>]   # market-fit result only
 pnpm -s engine eval [--offline]              # all examples/*.json vs their .expected.md
 pnpm -s engine samples ../../sample_vehicles.json [--use-shipped-config]
-pnpm -s engine parse "<notes>" [--out <file.json>] [--no-market] [--decide [--as-of <year>]]   # needs GOOGLE_API_KEY
+pnpm -s engine parse "<notes>" [--out <file.json>] [--no-market] [--decide [--as-of <year>]]   # needs OPENAI_API_KEY
 pnpm -s engine parse --file <notes.txt> [same options]
 ```
 
@@ -54,15 +54,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 - The cache lives in `packages/engine/.cache/market` (git-ignored; override with `MARKET_CACHE_DIR`). The key is year, make, model, trim, odometer band (25,000-mile buckets), title brand and run status. Entries expire after 7 days. Only API results are stored, including "insufficient" ones so a thin-data profile is not billed again. Fallbacks are never stored.
 - Other environment variables: `MARKET_MODEL` (default `claude-sonnet-5-5`), `MARKET_TIMEOUT_MS` (per-request timeout, default 300000), `UNDERSCOPE_RULES_PATH` (see [Code sets](#code-sets-rulesmd-and-codesetsjson)).
 
-## Free-text parser (Gemini)
+## Free-text parser (OpenAI gpt-4o-mini)
 
-`parse` turns a seller's free-text notes into an engine input record and prints it as JSON. One Gemini call fills the fields the notes support (run status, title, flags, codes, reported symptoms and the rest). A second call, with Google Search, adds a `market_fit` block, which the engine then uses instead of its own Anthropic call.
+`parse` turns a seller's free-text notes into an engine input record and prints it as JSON. One OpenAI call fills the fields the notes support (run status, title, flags, codes, reported symptoms, prices and the rest). A second call, with web search, adds a `market_fit` block, which the engine then uses instead of its own market-fit call. Both calls use `gpt-4o-mini`, always.
 
 ### Setup
 
-- Add `GOOGLE_API_KEY=...` to the repo-root `.env`. `packages/engine/.env` and the shell also work, with the same precedence as the Anthropic key. `GEMINI_API_KEY` is an alias. An empty value counts as missing, and then `parse` exits 1 before it builds a client. The key must be a Gemini Developer API key from Google AI Studio, not a Vertex AI key. It is never printed: error text is scrubbed of it.
-- `PARSER_MODEL`: the extraction model, default `gemini-3.8-flash`. The `gemini-2.5-*` models return 404 "no longer available to new users" for this key. `PARSER_MARKET_MODEL`: the market-call model, default the same as `PARSER_MODEL`.
-- `PARSER_TIMEOUT_MS`: the per-request timeout, default 180000. It is kept in 1000..1800000: a value outside that range is clamped, and a value that is not a positive number gives the default, each with a warning. The SDK also sends it to the server as its deadline.
+- Add `OPENAI_API_KEY=...` to the repo-root `.env`. `packages/engine/.env` and the shell also work, with the same precedence as the Anthropic key. An empty value counts as missing, and then `parse` exits 1 before it builds a client. The key is never printed: error text is scrubbed of it, and of any `sk-...` token, because OpenAI's 401 text echoes a masked key.
+- The model is fixed to `gpt-4o-mini` (`PARSER_MODEL` in `src/openaiParse.ts`); there is no setting for it. The old `PARSER_MODEL` and `PARSER_MARKET_MODEL` variables are ignored, with a warning when set. See [Known limits](#known-limits) for its shutdown date.
+- `PARSER_TIMEOUT_MS`: the per-request timeout, default 180000. It is kept in 1000..1800000: a value outside that range is clamped, and a value that is not a positive number gives the default, each with a warning.
 
 ### Commands
 
@@ -74,7 +74,7 @@ pnpm -s engine parse --file notes.txt --decide --as-of 2026  # then print the De
 pnpm -s engine decide record.json --offline                  # the saved JSON is valid engine input
 ```
 
-- stdout is the JSON only (2-space indent), so use `pnpm -s`. Logs go to stderr: a `parse: calling <model> (<call>) ...` line before each request and a usage line after it, for example `parse: gemini call (extraction): model=gemini-3.8-flash finish=STOP prompt=1187 candidates=88 thoughts=0 tool_use_prompt=0 search_queries=0 latency=2.9s cost: n/a (pricing not configured)`.
+- stdout is the JSON only (2-space indent), so use `pnpm -s`. Logs go to stderr: a `parse: calling <model> (<call>) ...` line before each request and a usage line after it, for example `parse: openai call (extraction): model=gpt-4o-mini status=completed input=3114 cached=0 output=274 web_searches=0 latency=5.3s cost: $0.0006`.
 - `--file <path>` reads the notes from a file, looked up like the other file arguments (a byte-order mark is fine). Give the text or `--file`, not both. Notes over 20,000 characters are refused.
 - `--out <file>` also writes the JSON to that file, relative to the directory where you ran pnpm.
 - `--no-market` skips the market call.
@@ -86,8 +86,8 @@ One JSON object:
 
 - Every record field is present. Enums the notes do not mention are `"unknown"`, other fields `null`. `codes` is `null` when the notes mention no scan and `[]` when they say a scan found no codes.
 - `reported_symptoms`: `[{system, text}]`, every mechanical or electrical complaint in the user's words.
-- `market_fit` (only when the market call succeeded): `{acv, copart, confidence, signals: [{claim, url}], insufficient, provider, generated_at}`, with `provider` such as `"gemini-3.8-flash + Google Search"`.
-- `parser`: the extraction model, `market_model` (`null` when no market call was made), `input_text`, `field_evidence` (field -> quote), `unknown_fields`, `unmapped` (things that fit no field, e.g. "new tires"), `notes` (resets, dropped codes, why market fit was left out), `search_queries` and per-call `usage`.
+- `market_fit` (only when the market call succeeded): `{acv, copart, confidence, signals: [{claim, url}], insufficient, provider, generated_at}`, with `provider` `"gpt-4o-mini + OpenAI web search"`.
+- `parser`: the extraction model, `market_model` (`null` when no market call was made), `input_text`, `field_evidence` (field -> quote), `unknown_fields`, `unmapped` (things that fit no field, e.g. "new tires"), `notes` (resets, dropped codes, why market fit was left out), `search_queries`, and `usage`: one entry per request, `{call, model, input_tokens, cached_input_tokens, output_tokens, web_searches, latency_ms, status, cost_usd}`.
 
 The real output of `pnpm -s engine parse "transmission is generating noise" --no-market --decide` on 2026-11-07 (the first JSON document, as printed):
 
@@ -106,7 +106,7 @@ The real output of `pnpm -s engine parse "transmission is generating noise" --no
     "brand": "unknown",
     "state": null
   },
-  "runs_drives": "run_and_drive",
+  "runs_drives": "unknown",
   "flags": {
     "frame": "unknown",
     "airbag": "unknown",
@@ -124,12 +124,12 @@ The real output of `pnpm -s engine parse "transmission is generating noise" --no
       "text": "transmission is generating noise"
     }
   ],
+  "valuation": null,
   "parser": {
-    "model": "gemini-3.8-flash",
+    "model": "gpt-4o-mini",
     "market_model": null,
     "input_text": "transmission is generating noise",
     "field_evidence": {
-      "runs_drives": "transmission is generating noise",
       "reported_symptoms[0]": "transmission is generating noise"
     },
     "unknown_fields": [
@@ -142,6 +142,7 @@ The real output of `pnpm -s engine parse "transmission is generating noise" --no
       "location_state",
       "title.brand",
       "title.state",
+      "runs_drives",
       "flags.frame",
       "flags.airbag",
       "flags.flood",
@@ -157,21 +158,21 @@ The real output of `pnpm -s engine parse "transmission is generating noise" --no
     "usage": [
       {
         "call": "extraction",
-        "model": "gemini-3.8-flash",
-        "prompt_tokens": 1187,
-        "candidates_tokens": 88,
-        "thoughts_tokens": 0,
-        "tool_use_prompt_tokens": 0,
-        "search_queries": 0,
-        "latency_ms": 2940,
-        "finish_reason": "STOP"
+        "model": "gpt-4o-mini",
+        "input_tokens": 3114,
+        "cached_input_tokens": 0,
+        "output_tokens": 274,
+        "web_searches": 0,
+        "latency_ms": 5295,
+        "status": "completed",
+        "cost_usd": 0.0006315
       }
     ]
   }
 }
 ```
 
-The Decision after it was ACV, P(ACV) 0.5548, insufficient, verify_first "confirm title brand" (unknown title and five unknown flags). Its drivable factors include `Severe: reported symptom: transmission -> modifier applied once` and `Reported symptom: transmission ("transmission is generating noise")`.
+The Decision after it was ACV, P(ACV) 0.5025, insufficient, verify_first "confirm title brand" (unknown title, unknown run status and five unknown flags). Its drivable factors include `Run status: unknown`, `Severe: reported symptom: transmission -> modifier applied once` and `Reported symptom: transmission ("transmission is generating noise")`.
 
 ### Never-guess rules
 
@@ -189,34 +190,36 @@ The code then re-checks every answer. A field that fails is reset to `"unknown"`
 
 ### Calls, latency and cost
 
-`parse` makes at most two Gemini calls:
+`parse` makes at most two OpenAI Responses API calls, both to `gpt-4o-mini`:
 
-1. **Extraction** (`prompts/parse_record.md`): structured JSON output, low thinking, no tools.
-2. **Market fit** (`prompts/parse_market.md`), only when year, make and model are known (otherwise `parser.notes` says which is missing): the Google Search tool, low thinking, and the answer as one JSON object in the reply text. It sends only year, make, model, trim, odometer, location state, title brand and run status, never the notes, VIN, flags, codes or symptoms. The scores are checked with the engine's `MarketFitBlockSchema`. Signals need an http(s) URL; those matching a grounding source come first; at most five are kept. A reply without Google Search grounding counts as invalid.
+1. **Extraction** (`prompts/parse_record.md` as the instructions, the notes as the input): strict structured output (`EXTRACTION_JSON_SCHEMA`, every field present and `null` when the notes do not support it), temperature 0, no tools.
+2. **Market fit** (`prompts/parse_market.md`), only when year, make and model are known (otherwise `parser.notes` says which is missing): the `web_search` tool (at most 5 tool calls, with each search's sources in the response) and a strict JSON answer (`MARKET_JSON_SCHEMA`). It sends only year, make, model, trim, odometer, location state, title brand and run status, never the notes, VIN, flags, codes, symptoms or prices. The scores are checked with the engine's `MarketFitBlockSchema`, because strict mode does not enforce ranges. Signals need an http(s) URL; those on a site the search saw come first; at most five are kept. An answer without a completed web search counts as invalid.
 
-Each call is retried once on invalid output. Each request is retried once on a transient error (408, 429, 5xx or a network error), after 1 s, or after a 429's RetryInfo delay capped at 60 s. These are not retried: a timeout (it already waited the full timeout), a 429 with quota limit 0, and a 429 with neither a quota id nor a retry delay (an exhausted quota, which waiting does not fix). A 429 that asks for a longer wait is still retried after 60 s; for the free tier's daily limit that retry fails too, which costs a minute and one more request. A parse usually makes 2 requests (1 with `--no-market`) and at most 8.
+Both requests send `store: false`, and neither sends reasoning settings, which `gpt-4o-mini` rejects.
 
-- **Latency.** Nine live extractions on 2026-11-07 took 2.9 s to 93.5 s, seven of them under 21 s, with 1,187-1,273 prompt tokens, 88-490 output tokens and 0 thought tokens (once 505). The model is sometimes overloaded; see [Known limits](#known-limits).
-- **Cost.** No Gemini pricing is configured: `GEMINI_PRICING_PER_MTOK` in `src/gemini.ts` is empty on purpose, so each usage line ends `cost: n/a (pricing not configured)`. A row filled from Google's pricing page turns on a token-only estimate, without Search grounding. The key used on 2026-11-07 is on the free tier: no charge, but at most 20 requests per day for `gemini-3.8-flash`.
+Each call is retried once on invalid output: JSON that does not parse or match the schema, a refusal, or a cut-off response. Each request is retried once on a transient error (408, 409, 429, 5xx or a connection error), after 1 s, or after a 429's `retry-after` delay capped at 60 s. These are not retried: a timeout (it already waited the full timeout) and a 429 `insufficient_quota` (an empty balance or a spend limit, which waiting does not fix). The SDK's own retries are off, so every retry is logged. A parse usually makes 2 requests (1 with `--no-market`) and at most 8.
+
+- **Latency.** Live on 2026-11-07: extractions took 5.3 s and 6.0 s (3,114-3,227 input tokens, 274-403 output tokens), and a market call 2.7 s with one search (8,174 input tokens). A full parse of a 7-line listing, both calls, took 9.6 s.
+- **Cost.** Each usage line and `parser.usage[].cost_usd` give the cost from `PARSER_PRICES_PER_MTOK` in `src/openaiParse.ts`: $0.15 input, $0.075 cached input and $0.60 output per million tokens, plus $10 per 1,000 web searches (https://developers.openai.com/api/docs/pricing, checked 2026-11-07). For `gpt-4o-mini`, each search's content is billed as a fixed 8,000 input tokens, which the API already counts in `input_tokens`. Live: about $0.0006 per extraction and $0.011 per market call, so about $0.012 per parse.
 
 ### Errors and exit codes
 
-An extraction failure exits 1 with a one-line `Error: ...` on stderr and prints no JSON. A 401, 402, 403 or 404 on the market call also exits 1, but the record is printed first (and written with `--out`) without `market_fit`, `parser.notes` says why, and `--decide` does not run. That message starts `market call failed:` and ends `(the record above was printed without market_fit; --no-market skips the market call)`. Any other market failure (400, 429, 5xx, a timeout, a network error, invalid output twice, no Search grounding) only leaves `market_fit` out, with a WARNING and a line in `parser.notes`, and exits 0. A 429 there adds a hint that Google Search grounding may have its own quota and that `--no-market` skips the call.
+An extraction failure exits 1 with a one-line `Error: ...` on stderr and prints no JSON. A 401, 403 or 404 on the market call also exits 1, but the record is printed first (and written with `--out`) without `market_fit`, `parser.notes` says why, and `--decide` does not run. That message starts `market call failed:` and ends `(the record above was printed without market_fit; --no-market skips the market call)`. Any other market failure (400, 429, 5xx, a timeout, a connection error, invalid output twice, no web search) only leaves `market_fit` out, with a WARNING and a line in `parser.notes`, and exits 0.
 
-| Failure | Message (`(...)` is the API's own text) |
+| Failure | Message (`(...)` is the API's own `<code>: <message>`) |
 | --- | --- |
-| No key | `GOOGLE_API_KEY is not set: add GOOGLE_API_KEY=... to .env at the repo root or in packages/engine (GEMINI_API_KEY also works)` |
-| 400 bad key | `Gemini API rejected the key (400 API_KEY_INVALID): check GOOGLE_API_KEY in .env` |
-| 401 | `Gemini API rejected the key (401): check GOOGLE_API_KEY in .env (...)` |
-| 402 | `Gemini API returned 402: the prepaid credits are used up; add credits in Google AI Studio billing and retry` |
-| 403 | `Gemini API returned 403 (permission denied): the key must be a Gemini Developer API key with the Generative Language API enabled (...)` |
-| 404 | `Gemini API returned 404 for model "<model>": set PARSER_MODEL to an available model (...)` (on the market call the model is `PARSER_MARKET_MODEL` when that is set) |
-| 429 without details | `Gemini API quota exhausted (429): check the plan and billing in Google AI Studio (...)` |
-| 429 | `Gemini API quota or rate limit exceeded (429) after one retry (quota <id>; limit <n>; retry after <s> s): ...` (a limit of 0 adds that the key has no quota for it) |
-| 503 | `Gemini model "<model>" is overloaded or unavailable (503) after one retry: try again in a few minutes, or pick another model with PARSER_MODEL / PARSER_MARKET_MODEL (...)` |
-| 504 | `Gemini API gave up on the <model> request (504) after one retry: ...`, with the same advice plus raising `PARSER_TIMEOUT_MS` |
-| Timeout | `Gemini call to <model> timed out after <s> s (raise PARSER_TIMEOUT_MS to wait longer)` |
-| Bad output | `Gemini returned invalid extraction output twice (...)` |
+| No key | `OPENAI_API_KEY is not set: add OPENAI_API_KEY=... to .env at the repo root or in packages/engine` |
+| 400 | `OpenAI API rejected the request (400): ...` |
+| 401 | `OpenAI API rejected the key (401): check OPENAI_API_KEY in .env (...)` |
+| 403 | `OpenAI API returned 403 (permission denied): check that the key's project may use gpt-4o-mini (...)` |
+| 404 | `OpenAI API returned 404 for model "gpt-4o-mini": the key's project cannot use it, or OpenAI has shut it down (OpenAI listed its shutdown date as 2027-01-14) (...)` |
+| 429 empty balance | `OpenAI API quota exhausted (429): add credits or raise the spend limit in the OpenAI billing settings (...)` |
+| 429 rate limit | `OpenAI API rate limit exceeded (429) after one retry: wait a minute and try again (...)` |
+| 5xx | `OpenAI API error <status> after one retry: the service is failing or overloaded; try again in a few minutes (...)` |
+| Connection | `OpenAI request failed after one retry: Connection error. (<cause, e.g. ECONNREFUSED>)` |
+| Timeout | `OpenAI call to gpt-4o-mini timed out after <s> s (raise PARSER_TIMEOUT_MS to wait longer)` |
+| Failed response | `OpenAI extraction response failed (<code>: <message>)` |
+| Bad output | `OpenAI returned invalid extraction output twice (...)` |
 
 ### Input fields the parser adds
 
@@ -395,7 +398,7 @@ A row's `confidence` defaults to 1.0 when the row does not set it.
 
 After a change, run `pnpm -s engine eval --offline` and `pnpm test`. The examples' `.expected.md` files and the tests were computed by hand from the shipped numbers, so they will report every answer that moved. Update them on purpose; do not tune numbers to make them pass.
 
-A few numbers are constants in the TypeScript source, not JSON: the cache TTL and odometer band (`src/cache.ts`), the token prices, web-search price, search and retry caps and default timeout (`src/marketFit.ts`), the parser's default model, timeout range and retry waits (`src/gemini.ts`), and its 20,000-character text and 40-character name limits (`src/parse.ts`). `tsx` runs the source directly, so these need no build step either, but some tests pin them.
+A few numbers are constants in the TypeScript source, not JSON: the cache TTL and odometer band (`src/cache.ts`), the token prices, web-search price, search and retry caps and default timeout (`src/marketFit.ts`), the parser's model, token and web-search prices, timeout range and retry waits (`src/openaiParse.ts`), and its 20,000-character text and 40-character name limits (`src/parse.ts`). `tsx` runs the source directly, so these need no build step either, but some tests pin them.
 
 ### Code sets: RULES.md and codesets.json
 
@@ -490,8 +493,8 @@ What it does not implement yet:
 
 - **The Anthropic market-fit path has never run against the real API.** The strict custom tool `report_market_fit` with `tool_choice: auto`, together with the `web_search_20260209` server tool on `claude-sonnet-5-5`, is tested only with a fake client. The spec acceptance line "with a key, `market examples/02_*.json` prints signals with source URLs" is unverified.
 - **A stalled API endpoint is slow to give up.** Each request has a 5-minute timeout (`MARKET_TIMEOUT_MS`) and one SDK retry, so one vehicle can wait about 10 minutes before the fallback. Nothing is printed while it waits. `eval` runs six examples in turn. Use `--offline` or a smaller `MARKET_TIMEOUT_MS` when that matters.
-- **The parser depends on a busy model.** On 2026-11-07, besides the nine extractions it answered (2.9 s to 93.5 s), `gemini-3.8-flash` returned 503 "This model is currently experiencing high demand" at least five times and 504 DEADLINE_EXCEEDED twice, each after the full 180 s deadline. Expect an occasional wait of minutes, and an exit 1 that asks you to try again later or to set `PARSER_MODEL`.
-- **The parser's market call has not returned a live answer, most likely because the key is on the free tier.** Every live market request on 2026-11-07 got 429 RESOURCE_EXHAUSTED "You exceeded your current quota, please check your plan and billing details", with no quota id and no retry delay, while extraction calls with the same key passed. Later that day an extraction 429 named the quota: `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20, retry delay 24,141 s (about 6.7 hours). So the key's project is on the free tier, with 20 `generateContent` requests per day for `gemini-3.8-flash`, and that is the likely reason the Google Search grounded call is refused. A key on a paid plan has not been tried. Until one is, the Google Search tool with low thinking on `gemini-3.8-flash`, and the real grounding metadata shape (coded from the SDK 3.0.0 type definitions), are tested only with a fake client. A failed market call leaves `market_fit` out (use `--no-market` to save the request), and the engine then uses the fallback table.
+- **The parser's model is being retired.** The parser always uses `gpt-4o-mini` (user decision, 2026-11-07). OpenAI's model lookup that day gave it a shutdown date of 2027-01-14, and its model page marks it deprecated. After that date every parse fails with the 404 message until `PARSER_MODEL` in `src/openaiParse.ts` names another model. A reasoning model would also need the requests changed: they reject `temperature`, which the extraction sends.
+- **`gpt-4o-mini` reads hedged notes as facts.** On a live listing on 2026-11-07 it set trim "Trofeo" from "(likely Trofeo)". The code check passes because the word is in the quote; `gemini-3.7-flash` had left the trim null on the same notes. The same run's market answer gave confidence 0.9 from one search and one signal. Check parsed trims, and treat the parser's market confidence as optimistic.
 - **Input checks are shape checks.** Unknown or misspelled keys (for example `runs_drive`) are an error, and absent keys become `"unknown"`. A record that is mostly missing still gets a decision. `location_state` only has to be two letters, so `"ZZ"` is accepted. Missing title and run status are marked "(missing)" in the factors; a missing flag shows only as "unknown".
 - **Answers depend on the year.** Without `--as-of`, vehicle age uses the current year, so fallback rows (and the answers) for the same record can change on 1 January.
 - Input, sample and config files may start with a UTF-8 byte-order mark (files saved by Windows editors).

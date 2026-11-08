@@ -12,6 +12,10 @@
 // Three optional keys come from the free-text parser: reported_symptoms (disclosed complaints in
 // the user's words), market_fit (a market-fit judgment used instead of the Anthropic call when it
 // is not "insufficient") and parser (its metadata: any object, ignored by the engine).
+//
+// A fourth optional key, valuation (prices: clean wholesale, salvage comps, purchase price), is
+// carried through to the Decision for display only. No scorer, utility or verify_first reads it
+// (user decision, round 4: "carry prices, don't use them").
 
 import { z } from "zod";
 import {
@@ -30,6 +34,7 @@ import {
   type ReportedSymptom,
   type RunStatus,
   type TitleBrand,
+  type Valuation,
 } from "./types.js";
 
 /** An optional key whose value may also be null: both mean "not stated" and normalize to unknown / null. */
@@ -108,6 +113,23 @@ export type MarketFitBlock = z.output<typeof MarketFitBlockSchema>;
 /** What may be written as a market_fit block. */
 export type MarketFitBlockInput = z.input<typeof MarketFitBlockSchema>;
 
+/** Most salvage comps a valuation block may carry. */
+export const MAX_SALVAGE_COMPS = 50;
+
+/** A price in USD: a finite number, 0 or more. */
+const Price = z.number().min(0, "expected a price of 0 or more (USD)");
+
+/**
+ * The valuation block of an input record: prices in USD, every key optional, null = absent.
+ * Shown in the Decision and the explain table only; the decision math never reads it.
+ */
+export const ValuationSchema = z.strictObject({
+  clean_wholesale: opt(Price),
+  salvage_comps: opt(z.array(Price).max(MAX_SALVAGE_COMPS, `expected at most ${MAX_SALVAGE_COMPS} salvage comps`)),
+  purchase_price: opt(Price),
+});
+export type ValuationInput = z.input<typeof ValuationSchema>;
+
 export const ConditionRecordSchema = z.strictObject({
   vin: opt(z.string().min(1)),
   decoded: opt(
@@ -156,6 +178,8 @@ export const ConditionRecordSchema = z.strictObject({
   /** Disclosed complaints, e.g. [{system: "transmission", text: "transmission is generating noise"}]. */
   reported_symptoms: opt(z.array(ReportedSymptomSchema)),
   market_fit: opt(MarketFitBlockSchema),
+  /** Prices for display only (clean wholesale, salvage comps, purchase price). Never scored. */
+  valuation: opt(ValuationSchema),
   /** Parser metadata (model, input text, evidence, usage...): any object, ignored by the engine. */
   parser: opt(z.record(z.string(), z.unknown())),
 });
@@ -180,6 +204,11 @@ export interface NormalizedRecord {
   reported_symptoms: ReportedSymptom[];
   /** The input's market_fit block, or null when it had none. Not a vehicle field: never in `missing`. */
   provided_market_fit: ProvidedMarketFit | null;
+  /**
+   * The input's valuation block, or null when it is absent or every price in it is empty.
+   * Echoed into the Decision for display; never read by a scorer. Not in `missing`.
+   */
+  valuation: Valuation | null;
   /** Dotted paths of fields that were absent and defaulted to unknown/null. */
   missing: string[];
 }
@@ -226,6 +255,7 @@ export function normalizeRecord(raw: unknown): NormalizedRecord {
   if (symptoms === null) missing.push("reported_symptoms");
   const lanes = r.seller?.lanes_allowed;
   const market = r.market_fit ?? null;
+  const valuation = normalizeValuation(r.valuation ?? null);
 
   return {
     vin: orNull(r.vin, "vin"),
@@ -249,8 +279,21 @@ export function normalizeRecord(raw: unknown): NormalizedRecord {
     reported_symptoms: (symptoms ?? []).map((s) => ({ system: s.system, text: s.text })),
     provided_market_fit:
       market === null ? null : { ...market, signals: market.signals.map((sig) => ({ claim: sig.claim, url: sig.url })) },
+    valuation,
     missing,
   };
+}
+
+/** A validated valuation block -> Valuation, or null when no price is given (null = absent). */
+function normalizeValuation(v: z.output<typeof ValuationSchema> | null): Valuation | null {
+  if (v === null) return null;
+  const valuation: Valuation = {
+    clean_wholesale: v.clean_wholesale ?? null,
+    salvage_comps: [...(v.salvage_comps ?? [])],
+    purchase_price: v.purchase_price ?? null,
+  };
+  const empty = valuation.clean_wholesale === null && valuation.salvage_comps.length === 0 && valuation.purchase_price === null;
+  return empty ? null : valuation;
 }
 
 /** Copy of a record with one hidden-risk flag forced to a value (used by verify_first). */

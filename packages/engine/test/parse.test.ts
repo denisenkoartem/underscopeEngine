@@ -1,30 +1,34 @@
-// Free-text parser (src/parse.ts, src/gemini.ts, the CLI parse command). Fully offline: every
-// Gemini call goes to a fake client. No real key is used anywhere in this file.
+// Free-text parser (src/parse.ts, src/openaiParse.ts, the CLI parse command). Fully offline: every
+// OpenAI call goes to a fake client. No real key is used anywhere in this file.
 
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApiError, type GenerateContentParameters } from "@google/genai";
+import OpenAI from "openai";
+import type { Response, ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
 import { decide } from "../src/combine.js";
 import { loadConfig } from "../src/config.js";
 import { scoreDrivable } from "../src/drivable.js";
+import { normalizeRecord } from "../src/input.js";
+import type { MessagesClient } from "../src/marketFit.js";
 import {
   DEFAULT_PARSER_TIMEOUT_MS,
   MAX_PARSER_TIMEOUT_MS,
   MIN_PARSER_TIMEOUT_MS,
-  describeGeminiError,
+  PARSER_MODEL,
+  describeOpenAIError,
+  parserCostUsd,
   parserTimeoutMs,
-  quotaInfo,
+  retryAfterMs,
   scrubKey,
-  type GeminiClient,
-  type GeminiResponse,
-} from "../src/gemini.js";
-import { normalizeRecord } from "../src/input.js";
-import type { MessagesClient } from "../src/marketFit.js";
+  type ParserClient,
+} from "../src/openaiParse.js";
 import {
   EXTRACTION_JSON_SCHEMA,
+  MARKET_JSON_SCHEMA,
+  MARKET_MAX_TOOL_CALLS,
   ParseError,
   buildParseMarketPrompt,
   extractJsonObject,
@@ -38,23 +42,23 @@ import {
 import { FLAG_NAMES } from "../src/types.js";
 
 const config = loadConfig();
-/** A made-up key in the Google key shape, so the scrubbing can be tested. Not a real key. */
-const FAKE_KEY = "AIzaFAKE_test_key_0000000000000000000";
-const ENV = { GOOGLE_API_KEY: FAKE_KEY } as NodeJS.ProcessEnv;
+/** A made-up key in the OpenAI key shape, so the scrubbing can be tested. Not a real key. */
+const FAKE_KEY = "sk-proj-FAKE_test_key_00000000000000000000";
+const ENV = { OPENAI_API_KEY: FAKE_KEY } as NodeJS.ProcessEnv;
 const NOW = new Date("2026-11-07T12:00:00.000Z");
 
 // ---- fake client ---------------------------------------------------------------------------
 
-type Reply = GeminiResponse | Error;
+type Reply = Response | Error;
 
 function fakeClient(...replies: Reply[]) {
-  const calls: GenerateContentParameters[] = [];
-  const client: GeminiClient = {
-    models: {
-      async generateContent(p) {
-        calls.push(p);
+  const calls: ResponseCreateParamsNonStreaming[] = [];
+  const client: ParserClient = {
+    responses: {
+      async create(body) {
+        calls.push(body);
         const r = replies.shift();
-        if (r === undefined) throw new Error("test: unexpected extra Gemini call");
+        if (r === undefined) throw new Error("test: unexpected extra OpenAI call");
         if (r instanceof Error) throw r;
         return r;
       },
@@ -64,38 +68,63 @@ function fakeClient(...replies: Reply[]) {
 }
 
 interface ReplyExtra {
-  queries?: string[];
-  chunks?: { uri?: string; title?: string }[];
-  finishReason?: string;
+  /** Completed web searches before the answer: each with its queries and source URLs. */
+  searches?: { queries: string[]; sources?: string[] }[];
+  status?: "completed" | "incomplete";
+  incompleteReason?: string;
+  refusal?: string;
 }
 
-function reply(text: string, extra: ReplyExtra = {}): GeminiResponse {
-  const grounding =
-    extra.queries || extra.chunks
-      ? { webSearchQueries: extra.queries ?? [], groundingChunks: (extra.chunks ?? []).map((web) => ({ web })) }
-      : undefined;
+function reply(text: string, extra: ReplyExtra = {}): Response {
+  const searches = (extra.searches ?? []).map((s, i) => ({
+    type: "web_search_call",
+    id: `ws_${i}`,
+    status: "completed",
+    action: { type: "search", queries: s.queries, sources: (s.sources ?? []).map((url) => ({ type: "url", url })) },
+  }));
+  const content = extra.refusal !== undefined ? [{ type: "refusal", refusal: extra.refusal }] : [{ type: "output_text", text, annotations: [] }];
   return {
-    candidates: [
-      {
-        content: { role: "model", parts: [{ text: "thinking...", thought: true }, { text }] },
-        finishReason: extra.finishReason ?? "STOP",
-        ...(grounding ? { groundingMetadata: grounding } : {}),
-      },
-    ],
-    usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 200, thoughtsTokenCount: 50, toolUsePromptTokenCount: 0 },
-    modelVersion: "gemini-3.8-flash",
-  } as unknown as GeminiResponse;
+    id: "resp_test",
+    object: "response",
+    model: "gpt-4o-mini-2024-07-18",
+    status: extra.status ?? "completed",
+    incomplete_details: extra.incompleteReason ? { reason: extra.incompleteReason } : null,
+    output: [...searches, { type: "message", id: "msg_test", role: "assistant", status: "completed", content }],
+    usage: {
+      input_tokens: 900,
+      input_tokens_details: { cached_tokens: 100 },
+      output_tokens: 200,
+      output_tokens_details: { reasoning_tokens: 0 },
+      total_tokens: 1100,
+    },
+    ...(searches.length ? { tool_usage: { web_search: { num_requests: searches.length } } } : {}),
+  } as unknown as Response;
 }
 
-const extraction = (x: Record<string, unknown>) =>
-  reply(JSON.stringify({ codes: [], reported_symptoms: [], unmapped: [], ...x }));
+/** An extraction answer: every field the strict schema has, null unless `x` sets it. */
+const extraction = (x: Record<string, unknown>) => {
+  const nothing = { value: null, evidence: null };
+  const flags = Object.fromEntries(FLAG_NAMES.map((f) => [f, nothing]));
+  const fields = ["vin", "year", "make", "model", "trim", "odometer", "location_state", "title_brand", "title_state", "runs_drives",
+    "scan_done", "lanes_allowed", "clean_wholesale", "salvage_comps", "purchase_price"];
+  const base = { ...Object.fromEntries(fields.map((f) => [f, nothing])), flags, codes: [], reported_symptoms: [], unmapped: [] };
+  const merged = { ...base, ...x, flags: { ...flags, ...((x.flags as object | undefined) ?? {}) } };
+  return reply(JSON.stringify(merged));
+};
 const ev = (value: unknown, evidence: string) => ({ value, evidence });
 
-const apiError = (status: number, message: string, statusText = "ERROR", details?: unknown[]) =>
-  new ApiError({ message: JSON.stringify({ error: { code: status, message, status: statusText, ...(details ? { details } : {}) } }), status });
+/** An OpenAI API error as the SDK builds it from an HTTP error response. */
+const apiError = (
+  status: number,
+  message: string,
+  code: string | null = null,
+  type = "invalid_request_error",
+  headers: Record<string, string> = {},
+) =>
+  OpenAI.APIError.generate(status, { error: { message, type, code, param: null } }, undefined, new Headers(headers));
 
 const logs: string[] = [];
-const opts = (client: GeminiClient, extra: Partial<ParseOptions> = {}): ParseOptions => ({
+const opts = (client: ParserClient, extra: Partial<ParseOptions> = {}): ParseOptions => ({
   client,
   env: ENV,
   now: NOW,
@@ -103,7 +132,7 @@ const opts = (client: GeminiClient, extra: Partial<ParseOptions> = {}): ParseOpt
   sleep: async () => {},
   ...extra,
 });
-const userText = (p: GenerateContentParameters): string => JSON.stringify(p.contents);
+const userText = (p: ResponseCreateParamsNonStreaming): string => JSON.stringify(p.input);
 
 afterEach(() => {
   logs.length = 0;
@@ -115,7 +144,9 @@ afterEach(() => {
 const NOISE = "transmission is generating noise";
 
 describe("extraction: one short complaint", () => {
-  it("maps the symptom and run status with evidence and leaves everything else unknown/null", async () => {
+  // Round 4b (OPENAI.md item C): this test used to expect run_and_drive from the NOISE quote. That
+  // was the live miss the user reported, so a complaint alone now sets no run status.
+  it("maps the symptom with evidence; the complaint alone sets no run status; everything else unknown/null", async () => {
     const { client, calls } = fakeClient(
       extraction({
         runs_drives: ev("run_and_drive", NOISE),
@@ -130,16 +161,20 @@ describe("extraction: one short complaint", () => {
       odometer: null,
       location_state: null,
       title: { brand: "unknown", state: null },
-      runs_drives: "run_and_drive",
+      runs_drives: "unknown",
       flags: Object.fromEntries(FLAG_NAMES.map((f) => [f, "unknown"])),
       codes: null,
       seller: { lanes_allowed: null },
       reported_symptoms: [{ system: "transmission", text: NOISE }],
+      valuation: null,
     });
-    expect(r.parser.field_evidence).toEqual({ runs_drives: NOISE, "reported_symptoms[0]": NOISE });
+    expect(r.parser.field_evidence).toEqual({ "reported_symptoms[0]": NOISE });
     expect(r.parser.unknown_fields).toContain("decoded.year");
     expect(r.parser.unknown_fields).toContain("codes");
-    expect(r.parser.unknown_fields).not.toContain("runs_drives");
+    expect(r.parser.unknown_fields).toContain("runs_drives");
+    expect(r.parser.notes[0]).toBe(
+      `runs_drives: quote "${NOISE}" does not say whether it runs, drives or starts (runs, drives, starts, won't start, cranks, towed...); runs_drives reset to unknown`,
+    );
     // No year/make/model: no market call.
     expect(r.market_fit).toBeUndefined();
     expect(r.parser.market_model).toBeNull();
@@ -147,35 +182,63 @@ describe("extraction: one short complaint", () => {
     expect(calls).toHaveLength(1);
     expect(r.parser.input_text).toBe(NOISE);
     expect(r.parser.usage).toEqual([
-      expect.objectContaining({ call: "extraction", model: "gemini-3.8-flash", prompt_tokens: 900, thoughts_tokens: 50 }),
+      expect.objectContaining({
+        call: "extraction",
+        model: "gpt-4o-mini",
+        input_tokens: 900,
+        cached_input_tokens: 100,
+        output_tokens: 200,
+        web_searches: 0,
+        status: "completed",
+      }),
     ]);
+    // 800 uncached x $0.15 + 100 cached x $0.075 + 200 output x $0.60, per million tokens.
+    expect(r.parser.usage[0]!.cost_usd).toBeCloseTo((800 * 0.15 + 100 * 0.075 + 200 * 0.6) / 1e6, 12);
   });
 
-  it("sends structured-output config with low thinking and no tools; the notes go in the user turn", async () => {
+  it("sends a strict json_schema request at temperature 0 with no tools; the notes are the input", async () => {
     const { client, calls } = fakeClient(extraction({}));
     await parseFreeText(NOISE, opts(client));
     const p = calls[0]!;
-    expect(p.model).toBe("gemini-3.8-flash");
-    expect(p.config?.responseMimeType).toBe("application/json");
-    expect(p.config?.responseJsonSchema).toBe(EXTRACTION_JSON_SCHEMA);
-    expect(p.config?.thinkingConfig).toEqual({ thinkingLevel: "LOW" });
-    expect(p.config?.automaticContinuation).toBe(false); // one HTTP request per call
-    expect(p.config?.tools).toBeUndefined();
-    expect(String(p.config?.systemInstruction)).toMatch(/Fill a field ONLY when the notes support it/);
-    expect(String(p.config?.systemInstruction)).not.toMatch(/<!--/);
-    expect(userText(p)).toContain(`<notes>\\n${NOISE}\\n</notes>`);
-    // Usage line on the log, with the cost marked as not configured.
-    expect(logs.some((l) => /^parse: calling gemini-3\.8-flash \(extraction\) \.\.\.$/.test(l))).toBe(true);
-    expect(logs.find((l) => l.startsWith("parse: gemini call (extraction)"))).toMatch(
-      /model=gemini-3\.8-flash finish=STOP prompt=900 candidates=200 thoughts=50 tool_use_prompt=0 search_queries=0 latency=\d+\.\ds cost: n\/a \(pricing not configured\)/,
+    expect(p.model).toBe("gpt-4o-mini");
+    expect(p.text?.format).toEqual({ type: "json_schema", name: "condition_record", strict: true, schema: EXTRACTION_JSON_SCHEMA });
+    expect(p.temperature).toBe(0);
+    expect(p.store).toBe(false);
+    expect(p.tools).toBeUndefined();
+    expect(p).not.toHaveProperty("reasoning"); // gpt-4o-mini rejects reasoning settings
+    expect(String(p.instructions)).toMatch(/Fill a field ONLY when the notes support it/);
+    expect(String(p.instructions)).not.toMatch(/<!--/);
+    expect(p.input).toBe(`<notes>\n${NOISE}\n</notes>`);
+    // Usage line on the log, with the cost.
+    expect(logs.some((l) => /^parse: calling gpt-4o-mini \(extraction\) \.\.\.$/.test(l))).toBe(true);
+    expect(logs.find((l) => l.startsWith("parse: openai call (extraction)"))).toMatch(
+      /model=gpt-4o-mini status=completed input=900 cached=100 output=200 web_searches=0 latency=\d+\.\ds cost: \$0\.0002$/,
     );
   });
 
-  it("PARSER_MODEL picks the model", async () => {
+  it("the strict schema requires every property and allows no others, at every level", () => {
+    const check = (node: unknown, path: string) => {
+      if (!node || typeof node !== "object") return;
+      const n = node as { type?: unknown; properties?: Record<string, unknown>; required?: string[]; additionalProperties?: unknown; items?: unknown };
+      if (n.properties) {
+        expect(n.required, path).toEqual(Object.keys(n.properties));
+        expect(n.additionalProperties, path).toBe(false);
+        for (const [k, v] of Object.entries(n.properties)) check(v, `${path}.${k}`);
+      }
+      if (n.items) check(n.items, `${path}[]`);
+    };
+    check(EXTRACTION_JSON_SCHEMA, "extraction");
+    check(MARKET_JSON_SCHEMA, "market");
+  });
+
+  it("always uses gpt-4o-mini: PARSER_MODEL / PARSER_MARKET_MODEL are ignored with a warning", async () => {
     const { client, calls } = fakeClient(extraction({}));
-    const r = await parseFreeText(NOISE, opts(client, { env: { ...ENV, PARSER_MODEL: "gemini-3.7-flash" } }));
-    expect(calls[0]!.model).toBe("gemini-3.7-flash");
-    expect(r.parser.model).toBe("gemini-3.7-flash");
+    const r = await parseFreeText(NOISE, opts(client, { env: { ...ENV, PARSER_MODEL: "gemini-3.7-flash", PARSER_MARKET_MODEL: "x" } }));
+    expect(PARSER_MODEL).toBe("gpt-4o-mini");
+    expect(calls[0]!.model).toBe("gpt-4o-mini");
+    expect(r.parser.model).toBe("gpt-4o-mini");
+    expect(logs).toContain("parse: WARNING PARSER_MODEL is set but ignored: the parser always uses gpt-4o-mini");
+    expect(logs).toContain("parse: WARNING PARSER_MARKET_MODEL is set but ignored: the parser always uses gpt-4o-mini");
   });
 });
 
@@ -221,15 +284,13 @@ const MARKET_JSON = {
     { claim: "Parts demand is high", url: "ftp://parts.example.com/silverado" },
   ],
 };
-const GROUNDING: ReplyExtra = {
-  queries: ["2018 Chevrolet Silverado 1500 LT retail price Ohio", "2018 Silverado 1500 salvage auction results"],
-  chunks: [
-    { uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc", title: "kbb.com" },
-    { uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/def", title: "copart.com" },
+const SEARCHED: ReplyExtra = {
+  searches: [
+    { queries: ["2018 Chevrolet Silverado 1500 LT retail price Ohio"], sources: ["https://www.kbb.com/chevrolet/silverado-1500/"] },
+    { queries: ["2018 Silverado 1500 salvage auction results"], sources: ["https://www.copart.com/lot/123"] },
   ],
 };
-const marketReply = (json: unknown = MARKET_JSON, extra: ReplyExtra = GROUNDING) =>
-  reply(`Here is my analysis.\n\`\`\`json\n${JSON.stringify(json, null, 2)}\n\`\`\`\n`, extra);
+const marketReply = (json: unknown = MARKET_JSON, extra: ReplyExtra = SEARCHED) => reply(JSON.stringify(json), extra);
 
 describe("extraction: a richer paragraph", () => {
   it("maps every stated field, with evidence, and runs the market call", async () => {
@@ -250,6 +311,7 @@ describe("extraction: a richer paragraph", () => {
       ],
       seller: { lanes_allowed: null },
       reported_symptoms: [{ system: "electrical", text: "Airbag light is on" }],
+      valuation: null, // round 4b: the record always has a valuation key; RICH gives no price
     });
     expect(r.parser.field_evidence).toMatchObject({
       "decoded.make": "Chevy",
@@ -263,15 +325,18 @@ describe("extraction: a richer paragraph", () => {
     expect(r.parser.notes).toEqual(["market fit: dropped 2 signal(s) without a claim or an http(s) URL"]);
   });
 
-  it("market call: only the eight profile fields are sent, with the Google Search tool", async () => {
+  it("market call: only the eight profile fields are sent, with the web_search tool and a strict JSON answer", async () => {
     const { client, calls } = fakeClient(richExtraction(), marketReply());
     await parseFreeText(RICH, opts(client));
     expect(calls).toHaveLength(2);
     const p = calls[1]!;
-    expect(p.config?.tools).toEqual([{ googleSearch: {} }]);
-    expect(p.config?.automaticContinuation).toBe(false);
-    expect(p.config?.responseJsonSchema).toBeUndefined();
-    expect(p.config?.responseMimeType).toBeUndefined();
+    expect(p.model).toBe("gpt-4o-mini");
+    expect(p.tools).toEqual([{ type: "web_search" }]);
+    expect(p.include).toEqual(["web_search_call.action.sources"]);
+    expect(p.max_tool_calls).toBe(MARKET_MAX_TOOL_CALLS);
+    expect(p.text?.format).toEqual({ type: "json_schema", name: "market_fit", strict: true, schema: MARKET_JSON_SCHEMA });
+    expect(p.instructions).toBeUndefined();
+    expect(p).not.toHaveProperty("reasoning");
     const sent = userText(p);
     for (const s of ["Year: 2018", "Make: Chevrolet", "Model: Silverado 1500", "Trim: LT", "Odometer: 112,300 miles",
       "Location (US state): OH", "Title brand: clean", "Run status: runs and drives"]) {
@@ -283,7 +348,7 @@ describe("extraction: a richer paragraph", () => {
     expect(sent).not.toMatch(/<!--/);
   });
 
-  it("market block: scores as given, grounded signals first, URL-less and non-http signals dropped, queries recorded", async () => {
+  it("market block: scores as given, searched-site signals first, URL-less and non-http signals dropped, queries recorded", async () => {
     const { client } = fakeClient(richExtraction(), marketReply());
     const r = await parseFreeText(RICH, opts(client));
     expect(r.market_fit).toEqual({
@@ -291,27 +356,29 @@ describe("extraction: a richer paragraph", () => {
       copart: 0.2,
       confidence: 0.6,
       signals: [
-        // kbb.com matches a grounding chunk's title, so it comes first.
+        // kbb.com is the host of a web search source, so it comes first.
         { claim: "Comparable LTs sell in about 40 days", url: "https://www.kbb.com/chevrolet/silverado-1500/2018/" },
         { claim: "Retail listings average $27,000", url: "https://www.edmunds.com/chevrolet/silverado-1500/2018/" },
       ],
       insufficient: false,
-      provider: "gemini-3.8-flash + Google Search",
+      provider: "gpt-4o-mini + OpenAI web search",
       generated_at: "2026-11-07T12:00:00.000Z",
     });
-    expect(r.parser.market_model).toBe("gemini-3.8-flash");
-    expect(r.parser.search_queries).toEqual(GROUNDING.queries);
-    expect(r.parser.usage.map((u) => [u.call, u.search_queries])).toEqual([
+    expect(r.parser.market_model).toBe("gpt-4o-mini");
+    expect(r.parser.search_queries).toEqual(["2018 Chevrolet Silverado 1500 LT retail price Ohio", "2018 Silverado 1500 salvage auction results"]);
+    expect(r.parser.usage.map((u) => [u.call, u.web_searches])).toEqual([
       ["extraction", 0],
       ["market", 2],
     ]);
+    // Two searches at $10 per 1,000 on top of the tokens.
+    expect(r.parser.usage[1]!.cost_usd).toBeCloseTo((800 * 0.15 + 100 * 0.075 + 200 * 0.6) / 1e6 + 0.02, 12);
+    expect(logs.find((l) => l.startsWith("parse: openai call (market)"))).toMatch(/web_searches=2 .* cost: \$0\.0202$/);
   });
 
-  it("PARSER_MARKET_MODEL picks the market model", async () => {
-    const { client, calls } = fakeClient(richExtraction(), marketReply());
-    const r = await parseFreeText(RICH, opts(client, { env: { ...ENV, PARSER_MARKET_MODEL: "gemini-pro-latest" } }));
-    expect(calls.map((c) => c.model)).toEqual(["gemini-3.8-flash", "gemini-pro-latest"]);
-    expect(r.market_fit?.provider).toBe("gemini-pro-latest + Google Search");
+  it("parserCostUsd: a dated snapshot id uses the base row; an unknown model has no cost", () => {
+    const u = { input_tokens: 1_000_000, cached_input_tokens: 0, output_tokens: 0, web_searches: 0 };
+    expect(parserCostUsd("gpt-4o-mini-2024-07-18", u)).toBeCloseTo(0.15, 12);
+    expect(parserCostUsd("some-other-model", u)).toBeNull();
   });
 
   it("--no-market (market: false) makes no market call", async () => {
@@ -592,12 +659,15 @@ describe("extraction: enum quotes must support the value", () => {
     expect(r.record.reported_symptoms).toEqual([{ system: "engine", text: "engine seized" }]);
     expect(r.parser.field_evidence).toMatchObject({ runs_drives: "does not start", "reported_symptoms[0]": "engine seized" });
     expect(warnings(r)).toEqual(['reported symptom "does not start" only restates the run status (no); dropped']);
-    // While it drives, the transmission-noise sentence is both the run-status quote and the symptom.
-    const drives = await extractOnly(NOISE, {
-      runs_drives: ev("run_and_drive", NOISE),
-      reported_symptoms: [{ system: "transmission", text: NOISE }],
+    // While it drives, one sentence can be both the run-status quote and the symptom.
+    // (Round 4b: the quote must say it drives, so NOISE alone no longer serves; see item C tests.)
+    const WHINES = "drives fine but the transmission whines";
+    const drives = await extractOnly(WHINES, {
+      runs_drives: ev("run_and_drive", WHINES),
+      reported_symptoms: [{ system: "transmission", text: WHINES }],
     });
-    expect(drives.record.reported_symptoms).toEqual([{ system: "transmission", text: NOISE }]);
+    expect(drives.record.runs_drives).toBe("run_and_drive");
+    expect(drives.record.reported_symptoms).toEqual([{ system: "transmission", text: WHINES }]);
   });
 });
 
@@ -712,11 +782,27 @@ describe("extraction: invalid output", () => {
     expect(logs).toContain("parse: extraction attempt 1: reply is not valid JSON; retrying once");
   });
 
-  it("invalid twice is a ParseError", async () => {
-    const { client } = fakeClient(reply('{"codes": "P0301"}'), reply("", { finishReason: "MAX_TOKENS" }));
+  it("invalid twice is a ParseError (a cut-off response counts as invalid)", async () => {
+    const { client } = fakeClient(reply('{"codes": "P0301"}'), reply("", { status: "incomplete", incompleteReason: "max_output_tokens" }));
     const err = await parseFreeText("won't start", opts(client)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ParseError);
-    expect((err as Error).message).toMatch(/^Gemini returned invalid extraction output twice \(empty reply \(finish MAX_TOKENS\)\)$/);
+    expect((err as Error).message).toBe("OpenAI returned invalid extraction output twice (response incomplete (max_output_tokens))");
+    expect(logs.some((l) => /^parse: extraction attempt 1: reply does not match the extraction schema: codes: .*; retrying once$/.test(l))).toBe(true);
+  });
+
+  it("a refusal counts as invalid output and gets the one retry", async () => {
+    const { client, calls } = fakeClient(reply("", { refusal: "I can't help with that." }), extraction({ runs_drives: ev("no", "won't start") }));
+    const r = await parseFreeText("won't start", opts(client));
+    expect(calls).toHaveLength(2);
+    expect(r.record.runs_drives).toBe("no");
+    expect(logs).toContain("parse: extraction attempt 1: model refused (I can't help with that.); retrying once");
+  });
+
+  it("a response with status failed is a ParseError, not retried as invalid output", async () => {
+    const failed = { ...reply(""), status: "failed", error: { code: "server_error", message: "boom" } } as unknown as Response;
+    const { client, calls } = fakeClient(failed);
+    await expect(parseFreeText("won't start", opts(client))).rejects.toThrow(new ParseError("OpenAI extraction response failed (server_error: boom)"));
+    expect(calls).toHaveLength(1);
   });
 });
 
@@ -732,19 +818,22 @@ describe("market call: retries and omissions", () => {
   });
 
   it("invalid twice: market_fit is left out with a note, and the record is still returned", async () => {
-    const { client, calls } = fakeClient(richExtraction(), reply("I could not find enough data.", GROUNDING), marketReply({ acv: "high" }));
+    const { client, calls } = fakeClient(richExtraction(), reply("I could not find enough data.", SEARCHED), marketReply({ acv: "high" }));
     const r = await parseFreeText(RICH, opts(client));
     expect(calls).toHaveLength(3);
     expect(r.market_fit).toBeUndefined();
     expect(r.record.decoded?.model).toBe("Silverado 1500");
+    expect(logs).toContain("parse: market attempt 1: no JSON object in the reply; retrying once");
     expect(r.parser.notes.at(-1)).toMatch(/^market fit omitted: invalid model output twice \(invalid market JSON: /);
   });
 
-  it("a reply without Google Search grounding is invalid", async () => {
-    const { client } = fakeClient(richExtraction(), marketReply(MARKET_JSON, {}), marketReply(MARKET_JSON, {}));
+  it("an answer without a completed web search is invalid", async () => {
+    const notCompleted = marketReply(MARKET_JSON);
+    for (const item of notCompleted.output) if (item.type === "web_search_call") item.status = "failed";
+    const { client } = fakeClient(richExtraction(), marketReply(MARKET_JSON, {}), notCompleted);
     const r = await parseFreeText(RICH, opts(client));
     expect(r.market_fit).toBeUndefined();
-    expect(r.parser.notes.at(-1)).toBe("market fit omitted: invalid model output twice (no Google Search grounding in the reply)");
+    expect(r.parser.notes.at(-1)).toBe("market fit omitted: invalid model output twice (no web search before the answer)");
   });
 
   it("an insufficient answer is kept as an insufficient block (the engine then ignores it)", async () => {
@@ -753,36 +842,40 @@ describe("market call: retries and omissions", () => {
     expect(r.market_fit).toMatchObject({ insufficient: true, confidence: 0.1 });
   });
 
-  it("401/402/403/404 on the market call fail the parse (PARSER.md: exit 1), with the record kept as `partial`", async () => {
+  it("401/403/404 on the market call fail the parse (PARSER.md: exit 1), with the record kept as `partial`", async () => {
     const cases: [number, string, RegExp][] = [
-      [404, "NOT_FOUND", /^market call failed: Gemini API returned 404 for model "gemini-x"/],
-      [402, "PAYMENT_REQUIRED", /^market call failed: Gemini API returned 402: the prepaid credits are used up/],
-      [403, "PERMISSION_DENIED", /^market call failed: Gemini API returned 403 \(permission denied\)/],
-      [401, "UNAUTHENTICATED", /^market call failed: Gemini API rejected the key \(401\)/],
+      [404, "model_not_found", /^market call failed: OpenAI API returned 404 for model "gpt-4o-mini": the key's project cannot use it/],
+      [403, "unsupported_country_region_territory", /^market call failed: OpenAI API returned 403 \(permission denied\)/],
+      [401, "invalid_api_key", /^market call failed: OpenAI API rejected the key \(401\): check OPENAI_API_KEY in \.env/],
     ];
-    for (const [status, statusText, message] of cases) {
-      const { client, calls } = fakeClient(richExtraction(), apiError(status, "models/gemini-x failed", statusText));
-      const err = await parseFreeText(RICH, opts(client, { marketModel: "gemini-x" })).catch((e: unknown) => e);
+    for (const [status, code, message] of cases) {
+      const { client, calls } = fakeClient(richExtraction(), apiError(status, "The request failed.", code));
+      const err = await parseFreeText(RICH, opts(client)).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ParseError);
       expect((err as Error).message).toMatch(message);
       expect(calls).toHaveLength(2); // not retried
       const partial = (err as ParseError).partial!;
       expect(partial.market_fit).toBeUndefined();
       expect(partial.record.decoded?.model).toBe("Silverado 1500");
-      expect(partial.parser.market_model).toBe("gemini-x");
+      expect(partial.parser.market_model).toBe("gpt-4o-mini");
       expect(partial.parser.notes.at(-1)).toBe(`market fit omitted: ${(err as Error).message.replace(/^market call failed: /, "")}`);
       // The partial record is valid engine input.
       expect(() => normalizeRecord(toEngineInput(partial))).not.toThrow();
     }
   });
 
-  it("other API errors on the market call (503) still leave market_fit out with a note, exit 0", async () => {
-    const overloaded = apiError(503, "The model is overloaded.", "UNAVAILABLE");
-    const { client, calls } = fakeClient(richExtraction(), overloaded, overloaded);
-    const r = await parseFreeText(RICH, opts(client));
-    expect(calls).toHaveLength(3); // one retry
+  it("other API errors on the market call (503, an empty balance) leave market_fit out with a note, exit 0", async () => {
+    const overloaded = apiError(503, "The server is overloaded or not ready yet.", null, "server_error");
+    const busy = fakeClient(richExtraction(), overloaded, overloaded);
+    const r = await parseFreeText(RICH, opts(busy.client));
+    expect(busy.calls).toHaveLength(3); // one retry
     expect(r.market_fit).toBeUndefined();
-    expect(r.parser.notes.at(-1)).toMatch(/^market fit omitted: Gemini model "gemini-3\.8-flash" is overloaded or unavailable \(503\) after one retry/);
+    expect(r.parser.notes.at(-1)).toMatch(/^market fit omitted: OpenAI API error 503 after one retry: the service is failing or overloaded/);
+
+    const broke = fakeClient(richExtraction(), apiError(429, "You exceeded your current quota.", "insufficient_quota"));
+    const r2 = await parseFreeText(RICH, opts(broke.client));
+    expect(broke.calls).toHaveLength(2); // not retried
+    expect(r2.parser.notes.at(-1)).toMatch(/^market fit omitted: OpenAI API quota exhausted \(429\)/);
   });
 
   it("extractJsonObject reads a fenced block or the outermost braces", () => {
@@ -803,170 +896,136 @@ describe("market call: retries and omissions", () => {
 // ---- API errors and the key ------------------------------------------------------------------
 
 describe("API errors and the key", () => {
-  it("missing key: clear ParseError, no client is constructed", async () => {
+  it("missing key: clear ParseError, no client is constructed; a Google key alone no longer works", async () => {
     const createClient = vi.fn();
-    for (const env of [{}, { GOOGLE_API_KEY: "" }, { GOOGLE_API_KEY: "", GEMINI_API_KEY: "" }]) {
+    for (const env of [{}, { OPENAI_API_KEY: "" }, { GOOGLE_API_KEY: "AIzaFAKE_old_key_0000000000000" }]) {
       const err = await parseFreeText(NOISE, { env, createClient, log: () => {} }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ParseError);
-      expect((err as Error).message).toMatch(/^GOOGLE_API_KEY is not set: add GOOGLE_API_KEY=\.\.\. to \.env/);
+      expect((err as Error).message).toBe("OPENAI_API_KEY is not set: add OPENAI_API_KEY=... to .env at the repo root or in packages/engine");
     }
     expect(createClient).not.toHaveBeenCalled();
   });
 
-  it("GEMINI_API_KEY works as an alias; the factory gets the key", async () => {
+  it("the factory gets the key", async () => {
     const { client } = fakeClient(extraction({}));
     const createClient = vi.fn(() => client);
-    await parseFreeText(NOISE, { env: { GEMINI_API_KEY: FAKE_KEY }, createClient, log: () => {} });
-    expect(createClient).toHaveBeenCalledWith(FAKE_KEY, { GEMINI_API_KEY: FAKE_KEY });
+    await parseFreeText(NOISE, { env: ENV, createClient, log: () => {} });
+    expect(createClient).toHaveBeenCalledWith(FAKE_KEY, ENV);
   });
 
-  it("402: one-line error about credits, not retried", async () => {
-    const { client, calls } = fakeClient(apiError(402, "Your prepayment credits are depleted.", "PAYMENT_REQUIRED"));
-    const err = await parseFreeText(NOISE, opts(client)).catch((e: unknown) => e);
+  it("401: one-line error naming OPENAI_API_KEY, the echoed key scrubbed, not retried", async () => {
+    const { client, calls } = fakeClient(
+      apiError(401, "Incorrect API key provided: sk-proj-****0000. You can find your API key at https://platform.openai.com/account/api-keys.", "invalid_api_key"),
+    );
+    const err = (await parseFreeText(NOISE, opts(client)).catch((e: unknown) => e)) as Error;
     expect(err).toBeInstanceOf(ParseError);
-    expect((err as Error).message).toBe(
-      "Gemini API returned 402: the prepaid credits are used up; add credits in Google AI Studio billing and retry",
+    expect(err.message).toBe(
+      "OpenAI API rejected the key (401): check OPENAI_API_KEY in .env (invalid_api_key: Incorrect API key provided: [redacted] " +
+        "You can find your API key at https://platform.openai.com/account/api-keys.)",
     );
     expect(calls).toHaveLength(1);
   });
 
   it("403 and 404 are clear one-line errors, not retried", async () => {
-    const forbidden = fakeClient(apiError(403, "Generative Language API has not been used in project 1 or it is disabled.", "PERMISSION_DENIED"));
+    const forbidden = fakeClient(apiError(403, "Project proj_x does not have access to model gpt-4o-mini", "model_not_found"));
     await expect(parseFreeText(NOISE, opts(forbidden.client))).rejects.toThrow(
-      /^Gemini API returned 403 \(permission denied\): the key must be a Gemini Developer API key .*PERMISSION_DENIED: Generative Language API has not been used/,
+      /^OpenAI API returned 403 \(permission denied\): check that the key's project may use gpt-4o-mini \(model_not_found: Project proj_x/,
     );
-    const missing = fakeClient(apiError(404, "gemini-2.5-flash is no longer available to new users.", "NOT_FOUND"));
-    await expect(parseFreeText(NOISE, opts(missing.client, { model: "gemini-2.5-flash" }))).rejects.toThrow(
-      /^Gemini API returned 404 for model "gemini-2\.5-flash": set PARSER_MODEL to an available model/,
+    const missing = fakeClient(apiError(404, "The model `gpt-4o-mini` does not exist or you do not have access to it.", "model_not_found"));
+    await expect(parseFreeText(NOISE, opts(missing.client))).rejects.toThrow(
+      'OpenAI API returned 404 for model "gpt-4o-mini": the key\'s project cannot use it, or OpenAI has shut it down ' +
+        "(OpenAI listed its shutdown date as 2027-01-14) (model_not_found: The model `gpt-4o-mini` does not exist or you do not have access to it.)",
     );
     expect(forbidden.calls.length + missing.calls.length).toBe(2);
   });
 
-  it("timeout: a clear message, not retried", async () => {
-    const abort = Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
-    const { client, calls } = fakeClient(abort);
-    await expect(parseFreeText(NOISE, opts(client, { env: { ...ENV, PARSER_TIMEOUT_MS: "5000" } }))).rejects.toThrow(
-      "Gemini call to gemini-3.8-flash timed out after 5 s (raise PARSER_TIMEOUT_MS to wait longer)",
-    );
-    expect(calls).toHaveLength(1);
+  it("timeout (the SDK's or an abort): a clear message, not retried", async () => {
+    for (const timeout of [new OpenAI.APIConnectionTimeoutError(), Object.assign(new Error("This operation was aborted"), { name: "AbortError" })]) {
+      const { client, calls } = fakeClient(timeout);
+      await expect(parseFreeText(NOISE, opts(client, { env: { ...ENV, PARSER_TIMEOUT_MS: "5000" } }))).rejects.toThrow(
+        "OpenAI call to gpt-4o-mini timed out after 5 s (raise PARSER_TIMEOUT_MS to wait longer)",
+      );
+      expect(calls).toHaveLength(1);
+    }
   });
 
-  it("503 and network errors are retried once (after a short wait), then reported", async () => {
+  it("503 and connection errors are retried once (after a short wait), then reported with their cause", async () => {
     const sleep = vi.fn(async () => {});
-    const ok = fakeClient(apiError(503, "The model is overloaded.", "UNAVAILABLE"), extraction({}));
+    const ok = fakeClient(apiError(503, "The server is overloaded or not ready yet.", null, "server_error"), extraction({}));
     await parseFreeText(NOISE, opts(ok.client, { sleep }));
     expect(ok.calls).toHaveLength(2);
     expect(sleep).toHaveBeenCalledWith(1000);
     expect(logs).toContain("parse: extraction failed (503); retrying once in 1 s");
 
-    const bad = fakeClient(new TypeError("fetch failed"), new TypeError("fetch failed"));
-    await expect(parseFreeText(NOISE, opts(bad.client))).rejects.toThrow("Gemini request failed after one retry: fetch failed");
+    const refused = () =>
+      new OpenAI.APIConnectionError({
+        cause: new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:443"), { code: "ECONNREFUSED" }) }),
+      });
+    const bad = fakeClient(refused(), refused());
+    await expect(parseFreeText(NOISE, opts(bad.client))).rejects.toThrow(
+      new ParseError("OpenAI request failed after one retry: Connection error. (ECONNREFUSED)"),
+    );
+    expect(bad.calls).toHaveLength(2);
+    expect(describeOpenAIError(new TypeError("fetch failed", { cause: new Error("bad port") }), "m", 1000)).toBe(
+      "OpenAI request failed after one retry: fetch failed (bad port)",
+    );
   });
 
-  it("503 then 504 (seen live): one retry, then an actionable one-line message", async () => {
-    const sleep = vi.fn(async () => {});
-    const overloaded = fakeClient(apiError(503, "The model is overloaded.", "UNAVAILABLE"), apiError(503, "The model is overloaded.", "UNAVAILABLE"));
-    await expect(parseFreeText(NOISE, opts(overloaded.client, { sleep }))).rejects.toThrow(
-      'Gemini model "gemini-3.8-flash" is overloaded or unavailable (503) after one retry: try again in a few minutes, ' +
-        "or pick another model with PARSER_MODEL / PARSER_MARKET_MODEL (UNAVAILABLE: The model is overloaded.)",
+  it("503 twice: one retry, then an actionable one-line message", async () => {
+    const overloaded = () => apiError(503, "The server is overloaded or not ready yet.", null, "server_error");
+    const { client, calls } = fakeClient(overloaded(), overloaded());
+    await expect(parseFreeText(NOISE, opts(client))).rejects.toThrow(
+      new ParseError(
+        "OpenAI API error 503 after one retry: the service is failing or overloaded; try again in a few minutes " +
+          "(server_error: The server is overloaded or not ready yet.)",
+      ),
     );
-    const deadline = fakeClient(
-      apiError(503, "The model is overloaded.", "UNAVAILABLE"),
-      apiError(504, "Deadline expired before operation could complete.", "DEADLINE_EXCEEDED"),
-    );
-    await expect(parseFreeText(NOISE, opts(deadline.client, { sleep }))).rejects.toThrow(
-      "Gemini API gave up on the gemini-3.8-flash request (504) after one retry: it did not finish within the 180 s request timeout. " +
-        "The model is probably overloaded: try again later, raise PARSER_TIMEOUT_MS, or pick another model with " +
-        "PARSER_MODEL / PARSER_MARKET_MODEL (DEADLINE_EXCEEDED: Deadline expired before operation could complete.)",
-    );
-    expect(deadline.calls).toHaveLength(2);
+    expect(calls).toHaveLength(2);
   });
 
-  it("429: waits the RetryInfo delay once; a zero quota is not retried; quota details in the message", async () => {
-    const details = (limit: string, delay: string) => [
-      {
-        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
-        violations: [{ quotaMetric: "generativelanguage.googleapis.com/generate_content_requests", quotaId: "GenerateRequestsPerMinutePerProjectPerModel", quotaValue: limit }],
-      },
-      { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: delay },
-    ];
+  it("429 rate limit: waits the retry-after delay once (capped at 60 s), then reports", async () => {
     const sleep = vi.fn(async () => {});
-    const busy = apiError(429, "You exceeded your current quota.", "RESOURCE_EXHAUSTED", details("10", "7s"));
-    const twice = fakeClient(busy, busy);
+    const limited = () => apiError(429, "Rate limit reached for gpt-4o-mini on requests per min (RPM): Limit 3.", "rate_limit_exceeded", "requests", { "retry-after": "7" });
+    const twice = fakeClient(limited(), limited());
     await expect(parseFreeText(NOISE, opts(twice.client, { sleep }))).rejects.toThrow(
-      "Gemini API quota or rate limit exceeded (429) after one retry (quota GenerateRequestsPerMinutePerProjectPerModel; limit 10; retry after 7 s)",
+      new ParseError(
+        "OpenAI API rate limit exceeded (429) after one retry: wait a minute and try again " +
+          "(rate_limit_exceeded: Rate limit reached for gpt-4o-mini on requests per min (RPM): Limit 3.)",
+      ),
     );
     expect(sleep).toHaveBeenCalledWith(7000);
     expect(twice.calls).toHaveLength(2);
 
-    const none = fakeClient(apiError(429, "You exceeded your current quota.", "RESOURCE_EXHAUSTED", details("0", "30s")));
-    await expect(parseFreeText(NOISE, opts(none.client))).rejects.toThrow(/\(429\) \(quota .*; limit 0; retry after 30 s\); the limit is 0/);
-    expect(none.calls).toHaveLength(1);
-    expect(quotaInfo(new Error("not json"))).toEqual({ quotas: [] });
+    const long = fakeClient(apiError(429, "Slow down.", "rate_limit_exceeded", "requests", { "retry-after": "600" }), extraction({}));
+    await parseFreeText(NOISE, opts(long.client, { sleep }));
+    expect(sleep).toHaveBeenLastCalledWith(60_000);
+    expect(retryAfterMs(apiError(429, "x", null, "requests", { "retry-after-ms": "1500", "retry-after": "2" }))).toBe(1500);
+    expect(retryAfterMs(new Error("no headers"))).toBeUndefined();
   });
 
-  // The live 429 body of the Google Search grounded call (2026-11-08): only a google.rpc.Help
-  // detail, no QuotaFailure and no RetryInfo.
-  const helpOnly429 = () =>
-    apiError(
-      429,
-      "You exceeded your current quota, please check your plan and billing details. For more information on this error, " +
-        "head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
-      "RESOURCE_EXHAUSTED",
-      [{ "@type": "type.googleapis.com/google.rpc.Help", links: [{ description: "Learn more about Gemini API quotas", url: "https://aistudio.google.com/docs/rate-limits" }] }],
+  it("429 insufficient_quota (an empty balance): 'quota exhausted' with the API's text, not retried", async () => {
+    const { client, calls } = fakeClient(
+      apiError(429, "You exceeded your current quota, please check your plan and billing details.", "insufficient_quota", "insufficient_quota"),
     );
-
-  it("429 with only a Help detail: 'quota exhausted' with the API's own text, not retried", async () => {
-    const { client, calls } = fakeClient(helpOnly429());
     const err = (await parseFreeText(NOISE, opts(client)).catch((e: unknown) => e)) as Error;
     expect(err).toBeInstanceOf(ParseError);
-    expect(err.message).toMatch(
-      /^Gemini API quota exhausted \(429\): check the plan and billing in Google AI Studio \(RESOURCE_EXHAUSTED: You exceeded your current quota, please check your plan and billing details\./,
+    expect(err.message).toBe(
+      "OpenAI API quota exhausted (429): add credits or raise the spend limit in the OpenAI billing settings " +
+        "(insufficient_quota: You exceeded your current quota, please check your plan and billing details.)",
     );
     expect(calls).toHaveLength(1);
-    expect(quotaInfo(helpOnly429())).toEqual({ quotas: [] });
-  });
-
-  it("429 with only a Help detail on the market call: market_fit left out, the note names Search grounding and --no-market", async () => {
-    const { client, calls } = fakeClient(richExtraction(), helpOnly429());
-    const r = await parseFreeText(RICH, opts(client));
-    expect(calls).toHaveLength(2); // no market retry
-    expect(r.market_fit).toBeUndefined();
-    expect(r.parser.notes.at(-1)).toMatch(
-      /^market fit omitted: Gemini API quota exhausted \(429\): check the plan and billing .*You exceeded your current quota.*; the market call uses Google Search grounding, which may have its own quota on the key \(--no-market skips this call\)$/,
-    );
-  });
-
-  it("a 429 with quota details keeps its wording and now also carries the API's text", () => {
-    const busy = apiError(429, "Rate limit hit.", "RESOURCE_EXHAUSTED", [
-      { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "3s" },
-    ]);
-    expect(describeGeminiError(busy, "m", 1000, FAKE_KEY)).toBe(
-      "Gemini API quota or rate limit exceeded (429) after one retry (retry after 3 s): RESOURCE_EXHAUSTED: Rate limit hit.",
-    );
-  });
-
-  it("network errors name their cause (ECONNREFUSED, bad port)", async () => {
-    const refused = () =>
-      new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:59999"), { code: "ECONNREFUSED" }) });
-    const { client, calls } = fakeClient(refused(), refused());
-    await expect(parseFreeText(NOISE, opts(client))).rejects.toThrow(/^Gemini request failed after one retry: fetch failed \(ECONNREFUSED\)$/);
-    expect(calls).toHaveLength(2);
-    expect(describeGeminiError(new TypeError("fetch failed", { cause: new Error("bad port") }), "m", 1000)).toBe(
-      "Gemini request failed after one retry: fetch failed (bad port)",
-    );
   });
 
   it("scrubs the key before cutting the message to one line, so no part of it survives the cut", () => {
     for (let pad = 180; pad <= 260; pad++) {
-      const e = apiError(500, `${"x".repeat(pad)} ${FAKE_KEY} tail`, "INTERNAL");
+      const e = apiError(500, `${"x".repeat(pad)} ${FAKE_KEY} tail`, null, "server_error");
       for (const key of [FAKE_KEY, undefined]) {
-        const msg = describeGeminiError(e, "m", 1000, key);
-        expect(msg).not.toMatch(/AIza/);
+        const msg = describeOpenAIError(e, "m", 1000, key);
+        expect(msg).not.toMatch(/sk-proj/);
         expect(msg).not.toContain("FAKE_test");
       }
     }
-    expect(scrubKey("cut AIzaFAKE_tes")).toBe("cut [redacted]");
+    expect(scrubKey("cut sk-proj-FAKE_te")).toBe("cut [redacted]");
   });
 
   it("PARSER_TIMEOUT_MS is kept in a sane range, with a one-line warning", () => {
@@ -987,19 +1046,19 @@ describe("API errors and the key", () => {
     const abort = Object.assign(new Error("This operation was aborted"), { name: "AbortError" });
     const { client } = fakeClient(abort);
     await expect(parseFreeText(NOISE, opts(client, { env: { ...ENV, PARSER_TIMEOUT_MS: "3000000000" } }))).rejects.toThrow(
-      "Gemini call to gemini-3.8-flash timed out after 1800 s",
+      "OpenAI call to gpt-4o-mini timed out after 1800 s",
     );
     expect(logs[0]).toBe("parse: WARNING PARSER_TIMEOUT_MS=3000000000 is outside 1000..1800000 ms; using 1800000");
   });
 
-  it("never puts the key in an error message", async () => {
-    const { client } = fakeClient(apiError(400, `API key not valid: ${FAKE_KEY}`, "INVALID_ARGUMENT"));
+  it("never puts the key in an error message or the log", async () => {
+    const { client } = fakeClient(apiError(401, `Incorrect API key provided: ${FAKE_KEY}.`, "invalid_api_key"));
     const err = (await parseFreeText(NOISE, opts(client)).catch((e: unknown) => e)) as Error;
-    expect(err.message).toBe("Gemini API rejected the key (400 API_KEY_INVALID): check GOOGLE_API_KEY in .env");
-    const other = describeGeminiError(apiError(400, `bad request for ${FAKE_KEY}`), "m", 1000, FAKE_KEY);
-    expect(other).not.toContain(FAKE_KEY);
-    expect(other).toContain("[redacted]");
-    expect(scrubKey(`x AIzaSyA${"b".repeat(32)} y`)).toBe("x [redacted] y");
+    expect(err.message).not.toContain(FAKE_KEY);
+    expect(err.message).toContain("[redacted]");
+    const other = describeOpenAIError(apiError(400, `bad request for ${FAKE_KEY}`), "m", 1000, FAKE_KEY);
+    expect(other).toBe("OpenAI API rejected the request (400): invalid_request_error: bad request for [redacted]");
+    expect(scrubKey(`x sk-${"b".repeat(48)} y`)).toBe("x [redacted] y");
     expect(logs.join("\n")).not.toContain(FAKE_KEY);
   });
 
@@ -1014,7 +1073,8 @@ describe("API errors and the key", () => {
 // ---- the output is engine input ----------------------------------------------------------------
 
 describe("parser output as engine input", () => {
-  const F150 = "transmission is generating noise, 2019 Ford F-150 XLT, 84k miles, Texas";
+  // Round 4b (item C): "drives fine" added, because NOISE alone no longer sets run_and_drive.
+  const F150 = "drives fine, transmission is generating noise, 2019 Ford F-150 XLT, 84k miles, Texas";
   const f150Extraction = () =>
     extraction({
       year: ev(2019, "2019"),
@@ -1023,7 +1083,7 @@ describe("parser output as engine input", () => {
       trim: ev("XLT", "XLT"),
       odometer: ev(84000, "84k miles"),
       location_state: ev("TX", "Texas"),
-      runs_drives: ev("run_and_drive", NOISE),
+      runs_drives: ev("run_and_drive", "drives fine"),
       reported_symptoms: [{ system: "transmission", text: NOISE }],
     });
   const f150Market = { acv: 0.5, copart: 0.1, confidence: 0.7, insufficient: false, signals: [{ claim: "F-150s retail fast", url: "https://www.kbb.com/ford/f150/" }] };
@@ -1040,7 +1100,7 @@ describe("parser output as engine input", () => {
     const input = toEngineInput(await parseFreeText(F150, opts(client)));
     expect(Object.keys(input)).toEqual([
       "vin", "decoded", "odometer", "location_state", "title", "runs_drives", "flags", "codes", "seller",
-      "reported_symptoms", "market_fit", "parser",
+      "reported_symptoms", "valuation", "market_fit", "parser",
     ]);
   });
 
@@ -1114,7 +1174,7 @@ describe("CLI parse", () => {
     const outPath = join(dir, "parsed.json");
     const { client, calls } = fakeClient(noiseExtraction());
     const code = await main(["parse", "transmission", "is", "generating", "noise", "--out", outPath, "--no-market"], {
-      geminiClient: client,
+      parserClient: client,
       env: ENV,
     });
     expect(code).toBe(0);
@@ -1134,10 +1194,10 @@ describe("CLI parse", () => {
     const { writeFileSync } = await import("node:fs");
     writeFileSync(notes, `﻿${NOISE}\n`);
     const { client, calls } = fakeClient(noiseExtraction());
-    expect(await main(["parse", "--file", notes, "--decide", "--as-of", "2026"], { geminiClient: client, env: ENV })).toBe(0);
+    expect(await main(["parse", "--file", notes, "--decide", "--as-of", "2026"], { parserClient: client, env: ENV })).toBe(0);
     expect(userText(calls[0]!)).toContain(`<notes>\\n${NOISE}\\n</notes>`);
     expect(out).toHaveLength(2);
-    expect(JSON.parse(out[0]!).runs_drives).toBe("run_and_drive");
+    expect(JSON.parse(out[0]!).runs_drives).toBe("unknown"); // round 4b (item C): a complaint alone is no run status
     const decision = JSON.parse(out[1]!);
     expect(decision).toHaveProperty("recommendation");
     expect(decision.category_scores.market_fit.source).toBe("fallback");
@@ -1145,7 +1205,7 @@ describe("CLI parse", () => {
 
   it("usage errors: --offline, --as-of without --decide, parse flags on other commands, no text", async () => {
     capture();
-    const deps = { geminiClient: fakeClient().client, env: ENV };
+    const deps = { parserClient: fakeClient().client, env: ENV };
     await expect(main(["parse", NOISE, "--offline"], deps)).rejects.toThrow(/--offline does not apply/);
     await expect(main(["parse", NOISE, "--as-of", "2026"], deps)).rejects.toThrow(/--as-of only applies to parse together with --decide/);
     await expect(main(["decide", "x.json", "--no-market", "--decide"], deps)).rejects.toThrow(/--no-market, --decide only applies to the parse command/);
@@ -1154,14 +1214,15 @@ describe("CLI parse", () => {
     await expect(main(["parse", NOISE, "--out"], deps)).rejects.toThrow(/--out needs a value/);
   });
 
-  it("402 on the market call: the record is still printed and written (no market_fit), then a ParseError (exit 1)", async () => {
+  it("404 on the market call: the record is still printed and written (no market_fit), then a ParseError (exit 1)", async () => {
     const { out, err } = capture();
     dir = mkdtempSync(join(tmpdir(), "underscope-parse-cli-"));
     const outPath = join(dir, "parsed.json");
-    const { client, calls } = fakeClient(richExtraction(), apiError(402, "Your prepayment credits are depleted.", "PAYMENT_REQUIRED"));
-    await expect(main(["parse", RICH, "--out", outPath, "--decide"], { geminiClient: client, env: ENV })).rejects.toThrow(
+    const { client, calls } = fakeClient(richExtraction(), apiError(404, "The model `gpt-4o-mini` does not exist.", "model_not_found"));
+    await expect(main(["parse", RICH, "--out", outPath, "--decide"], { parserClient: client, env: ENV })).rejects.toThrow(
       new ParseError(
-        "market call failed: Gemini API returned 402: the prepaid credits are used up; add credits in Google AI Studio billing and retry " +
+        'market call failed: OpenAI API returned 404 for model "gpt-4o-mini": the key\'s project cannot use it, or OpenAI has shut it ' +
+          "down (OpenAI listed its shutdown date as 2027-01-14) (model_not_found: The model `gpt-4o-mini` does not exist.) " +
           "(the record above was printed without market_fit; --no-market skips the market call)",
       ),
     );
@@ -1170,7 +1231,7 @@ describe("CLI parse", () => {
     const printed = JSON.parse(out[0]!);
     expect(printed).not.toHaveProperty("market_fit");
     expect(printed.decoded.model).toBe("Silverado 1500");
-    expect(printed.parser.notes.at(-1)).toMatch(/^market fit omitted: Gemini API returned 402/);
+    expect(printed.parser.notes.at(-1)).toMatch(/^market fit omitted: OpenAI API returned 404/);
     expect(readFileSync(outPath, "utf8")).toBe(`${out[0]}\n`);
     expect(err).toEqual([`parse: wrote ${outPath}`]);
   });
