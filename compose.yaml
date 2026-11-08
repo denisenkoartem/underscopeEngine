@@ -1,0 +1,12 @@
+# docker compose up --build   -> demo page + all APIs (including the Python /api/route) on http://localhost:3000
+# Keys come from .env (OPENAI_API_KEY, SUPABASE_*, ...); without it the page loads but AI/DB calls fail.
+services:
+  web:
+    build: .
+    image: underscope-team
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped

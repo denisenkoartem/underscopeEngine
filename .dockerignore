@@ -1,0 +1,22 @@
+# Secrets and real VINs never go into the image; keys are passed at run time (--env-file .env).
+.env
+.env.*
+!.env.example
+data/*.local.json
+
+# Installed in the image, never copied from the host
+**/node_modules
+**/.venv
+**/venv
+**/__pycache__
+**/.pytest_cache
+**/.cache
+
+# Not needed to run
+.git
+.claude
+.vercel
+test_vehicles
+**/*:Zone.Identifier
+Dockerfile
+compose.yaml

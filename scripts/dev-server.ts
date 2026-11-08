@@ -33,13 +33,36 @@ function vercelRes(res: ServerResponse) {
   return r;
 }
 
+// Python functions (api/*.py, e.g. /api/route) run in scripts/py-api.py; forward the request there as is.
+const PY_API_URL = process.env.PY_API_URL || 'http://127.0.0.1:3001';
+async function proxyPython(req: IncomingMessage, res: ServerResponse, url: URL, raw: Buffer, name: string) {
+  const started = Date.now();
+  let r: Response;
+  try {
+    r = await fetch(new URL(url.pathname + url.search, PY_API_URL), {
+      method: req.method,
+      headers: { 'Content-Type': req.headers['content-type'] ?? 'application/json' },
+      body: req.method === 'GET' || req.method === 'HEAD' ? undefined : raw,
+    });
+  } catch {
+    return vercelRes(res).status(502).json({ error: `/api/${name} is a Python function; start it with: python3 scripts/py-api.py` });
+  }
+  const headers: Record<string, string> = {};
+  r.headers.forEach((v, k) => { if (k === 'content-type' || k.startsWith('access-control-')) headers[k] = v; });
+  res.writeHead(r.status, headers).end(Buffer.from(await r.arrayBuffer()));
+  console.log(`${req.method} ${url.pathname} -> ${r.status} in ${((Date.now() - started) / 1000).toFixed(1)}s (python)`);
+}
+
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL) {
   const name = url.pathname.replace(/^\/api\//, '').replace(/\/$/, '');
   const file = join(ROOT, 'api', `${name}.ts`);
-  if (!/^[\w-]+$/.test(name) || name.startsWith('_') || !existsSync(file)) return vercelRes(res).status(404).json({ error: `No function /api/${name}` });
+  const valid = /^[\w-]+$/.test(name) && !name.startsWith('_');
+  const python = valid && !existsSync(file) && existsSync(join(ROOT, 'api', `${name}.py`));
+  if (!valid || (!python && !existsSync(file))) return vercelRes(res).status(404).json({ error: `No function /api/${name}` });
 
   const raw = await readBody(req);
   if (raw === null) return vercelRes(res).status(413).json({ error: 'Request body over 4.5 MB (Vercel limit)' });
+  if (python) return proxyPython(req, res, url, raw, name);
   let body: unknown = undefined;
   if (raw.length) {
     const text = raw.toString('utf8');
