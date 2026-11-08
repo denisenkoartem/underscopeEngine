@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/decide.ts": { "includeFiles": "data/repair_costs.csv" },
+    "api/route.py": { "includeFiles": "engine/{src,config}/**" }
+  }
+}

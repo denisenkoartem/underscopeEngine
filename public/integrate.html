@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Underscope: integrate</title>
+<meta name="description" content="How Underscope plugs into a listing flow: deep links, a bookmarklet and four small APIs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="appbar"><div class="in">
+  <a class="logo" href="/"><span class="logo-mark" aria-hidden="true"></span>Underscope</a>
+  <nav class="nav" aria-label="Main">
+    <a href="/">Check a vehicle</a>
+    <a href="/integrate.html" aria-current="page">Integrate</a>
+  </nav>
+  <span class="tag-built">Built for ACV at UB Hacking</span>
+</div></header>
+
+<div class="doc">
+  <h1>Plugging Underscope into a listing flow</h1>
+  <p class="lead">Underscope is four small APIs and a page that takes a VIN in the URL. Nothing here needs access to ACV's systems today. These are the connection points a partner would use, and they all work now.</p>
+
+  <section>
+    <h2>Where it sits</h2>
+    <div class="flow">
+      <div><b>Scan</b>VIPER condition report, photos, scan-tool codes</div>
+      <div class="us"><b>Underscope</b>Verified title, repair estimate, fix vs. sell-as-is with two net ranges</div>
+      <div><b>Seller decides</b>Fix and relist, or list as-is, with the evidence attached</div>
+      <div><b>Lane</b>Dealer wholesale for fixed cars, salvage for as-is</div>
+    </div>
+    <p>In a pilot it would run silently next to today's lane rules (shadow mode), and only change routing on a small randomized slice, so the lift can be measured before anyone relies on it.</p>
+  </section>
+
+  <section id="link">
+    <h2>1. Link to it from any listing</h2>
+    <p>Any page that knows a VIN can open a prefilled check. Add <code>run=1</code> to run it straight away.</p>
+    <pre>https://underscope-eight.vercel.app/?vin=1FTEW1EP6JKD12345&amp;codes=P0299,P0171&amp;title=clean&amp;run=1</pre>
+    <p style="margin-top:10px">Optional: <code>title</code> (clean, salvage, rebuilt, flood, non_repairable, lemon), <code>codes</code>, <code>clean</code> (wholesale value), <code>comps</code> (comma-separated sold prices). Registered vehicles fill in their verified title and values on their own. Every result has a <b>Copy link</b> button that produces one of these.</p>
+    <p><a class="btn btn-ghost btn-sm" href="/?sample=front-hit">Open a sample check</a></p>
+  </section>
+
+  <section id="bookmarklet">
+    <h2>2. Bookmarklet: one click from a listing page</h2>
+    <p>Drag this button to your bookmarks bar. On any page showing a vehicle (a dealer listing, an auction lot, a condition report), click it. It finds the VIN on the page, confirms it with the VIN check digit, and opens Underscope with that vehicle.</p>
+    <p><a class="bookmarklet" id="bm" href="#">Fix or sell?</a></p>
+    <ol>
+      <li>Show the bookmarks bar (Ctrl+Shift+B or Cmd+Shift+B).</li>
+      <li>Drag the orange button onto it.</li>
+      <li>Open a listing and click it. Selecting the VIN first works too.</li>
+    </ol>
+    <details><summary style="cursor:pointer;color:var(--steel);font-size:13px">What the bookmarklet runs</summary><pre id="bm-src" style="margin-top:8px"></pre></details>
+  </section>
+
+  <section id="api">
+    <h2>3. Call the APIs</h2>
+    <p>All four accept cross-origin requests, so a partner front end can call them directly.</p>
+    <ul>
+      <li><code>GET /api/vehicle?vin=</code>: verified title and market values for registered vehicles.</li>
+      <li><code>POST /api/grade-photos</code> <code>{ vin, photos }</code>: 25 part grades, damage flags, missing angles.</li>
+      <li><code>POST /api/decode-codes</code> <code>{ vin, codes, title_status }</code>: fault codes with cost ranges.</li>
+      <li><code>POST /api/decide</code> <code>{ title_status, grades, flags, codes, values }</code>: repair estimate, both net ranges, P(fix wins), verdict.</li>
+    </ul>
+    <pre>curl -X POST https://underscope-eight.vercel.app/api/decide \
+  -H "content-type: application/json" \
+  -d '{"title_status":"clean",
+       "grades":[{"part":"hood","grade":"replace"},{"part":"front_bumper","grade":"replace"}],
+       "flags":{"frame_suspected":false},
+       "values":{"clean_wholesale":24500,"salvage_comps":[9800,10400,11200,11900,12600]}}'</pre>
+  </section>
+
+  <section>
+    <h2>What a pilot would swap in</h2>
+    <ul>
+      <li><b>VIPER payloads</b> in place of our photo grading, mapped onto the same 25-part grades.</li>
+      <li><b>ACV and Copart sold prices</b> in place of hand-entered comps and wholesale values.</li>
+      <li><b>Shop invoices</b> in place of our rough repair-cost table.</li>
+    </ul>
+    <p>The decision logic and APIs stay the same; only the inputs get better.</p>
+  </section>
+</div>
+
+<footer>
+  <span>Underscope is an independent UB Hacking project, not affiliated with or endorsed by ACV Auctions.</span>
+  <span>Repair costs and sample values are estimates.</span>
+</footer>
+
+<script>
+// Finds a VIN on the current page (selection first), checks the North American VIN check digit, opens Underscope.
+const BOOKMARKLET = `(()=>{const W=[8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2],T={A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9};
+const ok=v=>{let s=0;for(let i=0;i<17;i++){const c=v[i];s+=(/\\d/.test(c)?+c:T[c])*W[i]}const d=s%11;return v[8]===(d===10?'X':String(d))};
+const txt=((getSelection()+'')||document.body.innerText).toUpperCase();
+const all=txt.match(/\\b[A-HJ-NPR-Z0-9]{17}\\b/g)||[];const c=all.filter(v=>/\\d/.test(v)&&/[A-Z]/.test(v));
+const v=c.find(ok)||(c[0]&&confirm('Underscope: '+c[0]+' fails the VIN check digit. Open it anyway?')&&c[0]);
+if(!v){if(!c.length)alert('Underscope: no VIN found on this page. Select the VIN and try again.');return}
+window.open('${location.origin}/?vin='+v+'&run=1','_blank')})()`;
+document.getElementById('bm').href = 'javascript:' + encodeURIComponent(BOOKMARKLET.replace(/\n/g, ''));
+document.getElementById('bm').addEventListener('click', (e) => { e.preventDefault(); alert('Drag this button to your bookmarks bar, then click it on a listing page.'); });
+document.getElementById('bm-src').textContent = BOOKMARKLET;
+</script>
+</body>
+</html>

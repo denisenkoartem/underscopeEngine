@@ -6,3 +6,6 @@ node_modules/
 .cache/
 dist/
 *:Zone.Identifier
+.vercel/
+# Real VINs for the demo registry: never commit
+data/*.local.json

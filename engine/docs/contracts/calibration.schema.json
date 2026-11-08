@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Written by calibrate, read by --calibration. Maps stated confidence bands to how often they were right.",
+  "properties": {
+    "bins": {
+      "items": {
+        "properties": {
+          "calibrated": {
+            "description": "null: too few predictions, confidence unchanged",
+            "maximum": 1,
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "high": {
+            "type": "number"
+          },
+          "low": {
+            "type": "number"
+          },
+          "matched": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "predictions": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "low",
+          "high",
+          "predictions",
+          "matched",
+          "calibrated"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "by": {
+      "enum": [
+        "panel",
+        "type"
+      ]
+    },
+    "min_count": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "by",
+    "min_count",
+    "bins"
+  ],
+  "title": "Calibration",
+  "type": "object"
+}

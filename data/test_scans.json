@@ -1,0 +1,14 @@
+[
+  { "id": "clean-1", "label": "2017 Ram 1500, no codes", "vin": "1C6RR7LT2HS512345", "codes": [], "expected_triage": "full_inspection" },
+  { "id": "clean-2", "label": "2019 GMC Savana, no codes", "vin": "1GTW7AFG2K1123456", "codes": [], "expected_triage": "full_inspection" },
+  { "id": "clean-3", "label": "2016 Nissan NV, no codes", "vin": "1N6BF0KM3GN812345", "codes": [], "expected_triage": "full_inspection" },
+
+  { "id": "moderate-1", "label": "2018 F-150 2.7 EcoBoost, underboost + lean", "vin": "1FTEW1EP6JKD12345", "codes": ["P0299", "P0171"], "expected_triage": "full_inspection" },
+  { "id": "moderate-2", "label": "2019 Silverado 5.3, misfire + catalyst", "vin": "3GCUYDED4KG123456", "codes": ["P0300", "P0420"], "expected_triage": "full_inspection" },
+  { "id": "moderate-3", "label": "2019 Transit, wheel sensor + EVAP + Ford-specific code", "vin": "1FTYR2CM1KKA12345", "codes": ["C0035", "P0442", "P1450"], "expected_triage": "full_inspection" },
+  { "id": "moderate-4", "label": "2020 ProMaster 2500, thermostat + wheel sensor + low voltage", "vin": "3C6TRVDG8LE112345", "codes": ["P0128", "C0045", "P0562"], "expected_triage": "full_inspection" },
+
+  { "id": "severe-1", "label": "2017 Sierra 2500HD Duramax, transmission failure", "vin": "1GT12UEY2HF123456", "codes": ["P0700", "P0730", "P0868"], "expected_triage": "skip_inspection_sell_as_is" },
+  { "id": "severe-2", "label": "2018 Express, airbags deployed", "vin": "1GCWGAFP4J1123456", "codes": ["B0001", "B0010", "U0151"], "expected_triage": "skip_inspection_sell_as_is" },
+  { "id": "severe-3", "label": "2020 F-250 6.7 diesel, many codes", "vin": "1FT7W2BT8LEC12345", "codes": ["P0087", "P2002", "P20EE", "P2463", "P0401", "P0562", "U0100"], "expected_triage": "skip_inspection_sell_as_is" }
+]

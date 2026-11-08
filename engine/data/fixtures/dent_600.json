@@ -1,0 +1,1 @@
+{"vin":"FIXDENT0000000001","year":2022,"make":"SynthA","model":"Alpha","trim":"Base","mileage":28000,"region":"NY","title_status":"clean","insurance_claim":false,"clean_value_cents":2500000,"undercarriage_damage":false,"engine_audio_abnormal":false,"photo_refs":["fixtures/dent_600_door.jpg"],"findings":[{"panel":"door","damage_type":"dent","severity":0.5,"confidence":0.95}]}

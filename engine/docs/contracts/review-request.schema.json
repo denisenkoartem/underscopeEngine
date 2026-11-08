@@ -1,0 +1,405 @@
+{
+  "$defs": {
+    "DamageFinding": {
+      "properties": {
+        "box": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Box"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "damage_type": {
+          "$ref": "#/$defs/DamageType"
+        },
+        "panel": {
+          "$ref": "#/$defs/Panel"
+        },
+        "photo_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Photo Ref"
+        },
+        "severity": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Severity",
+          "type": "number"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right",
+                "center"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Side"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "panel",
+        "damage_type",
+        "severity",
+        "confidence"
+      ],
+      "title": "DamageFinding",
+      "type": "object"
+    },
+    "DamageType": {
+      "enum": [
+        "dent",
+        "scratch",
+        "crack",
+        "crush",
+        "broken"
+      ],
+      "title": "DamageType",
+      "type": "string"
+    },
+    "Panel": {
+      "enum": [
+        "front_bumper",
+        "rear_bumper",
+        "hood",
+        "fender",
+        "door",
+        "quarter_panel",
+        "roof",
+        "windshield",
+        "frame"
+      ],
+      "title": "Panel",
+      "type": "string"
+    },
+    "ReviewMode": {
+      "enum": [
+        "all",
+        "risky"
+      ],
+      "title": "ReviewMode",
+      "type": "string"
+    },
+    "TitleStatus": {
+      "enum": [
+        "clean",
+        "salvage",
+        "rebuilt"
+      ],
+      "title": "TitleStatus",
+      "type": "string"
+    },
+    "VehicleRecord": {
+      "properties": {
+        "clean_value_cents": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clean Value Cents"
+        },
+        "engine_audio_abnormal": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Audio Abnormal"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/DamageFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "insurance_claim": {
+          "default": false,
+          "title": "Insurance Claim",
+          "type": "boolean"
+        },
+        "make": {
+          "title": "Make",
+          "type": "string"
+        },
+        "mechanical_repair_cents": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mechanical Repair Cents"
+        },
+        "mileage": {
+          "minimum": 0,
+          "title": "Mileage",
+          "type": "integer"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "photo_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Photo Refs",
+          "type": "array"
+        },
+        "region": {
+          "title": "Region",
+          "type": "string"
+        },
+        "repair_override_cents": {
+          "anyOf": [
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repair Override Cents"
+        },
+        "salvage_comps_cents": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Salvage Comps Cents"
+        },
+        "title_status": {
+          "$ref": "#/$defs/TitleStatus",
+          "default": "clean"
+        },
+        "trim": {
+          "default": "",
+          "title": "Trim",
+          "type": "string"
+        },
+        "undercarriage_damage": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undercarriage Damage"
+        },
+        "vin": {
+          "title": "Vin",
+          "type": "string"
+        },
+        "year": {
+          "title": "Year",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "vin",
+        "year",
+        "make",
+        "model",
+        "mileage",
+        "region"
+      ],
+      "title": "VehicleRecord",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The human-checker handoff, reviews/<VIN>.json. Written when a vehicle needs confirmation (exit code 3); confirm sets status to confirmed.",
+  "properties": {
+    "checker": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Checker"
+    },
+    "confirmed_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confirmed At"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/DamageFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "mode": {
+      "$ref": "#/$defs/ReviewMode",
+      "default": "all"
+    },
+    "photo_root": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Photo Root"
+    },
+    "photo_views": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Photo Views",
+      "type": "object"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "sightings": {
+      "items": {
+        "$ref": "#/$defs/DamageFinding"
+      },
+      "title": "Sightings",
+      "type": "array"
+    },
+    "source_fingerprint": {
+      "default": "",
+      "title": "Source Fingerprint",
+      "type": "string"
+    },
+    "status": {
+      "default": "pending",
+      "enum": [
+        "pending",
+        "confirmed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "vehicle": {
+      "$ref": "#/$defs/VehicleRecord"
+    },
+    "vin": {
+      "title": "Vin",
+      "type": "string"
+    }
+  },
+  "required": [
+    "vin",
+    "vehicle",
+    "findings"
+  ],
+  "title": "Review request",
+  "type": "object"
+}

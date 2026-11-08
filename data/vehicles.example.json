@@ -1,0 +1,13 @@
+[
+  {
+    "vin": "17 characters from the title or windshield",
+    "title_status": "clean | salvage | rebuilt | flood | non_repairable | lemon",
+    "title_state": "NY",
+    "odometer": 48210,
+    "source": "title_document | dealer_listing | online_listing | nmvtis_report",
+    "note": "optional, e.g. whose car or the listing URL",
+    "clean_wholesale": 7200,
+    "salvage_comps": [2100, 2400, 2650, 2900, 3150],
+    "values_note": "where the numbers came from, e.g. 5 sold salvage lots for the same model year, Nov 2026"
+  }
+]

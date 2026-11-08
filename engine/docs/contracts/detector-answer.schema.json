@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What Claude must return for one photo (enforced as structured output). Boxes are fractions of the photo: x0, y0 top-left to x1, y1 bottom-right.",
+  "properties": {
+    "findings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "box": {
+            "additionalProperties": false,
+            "properties": {
+              "x0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "y0": {
+                "type": "number"
+              },
+              "y1": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ],
+            "type": "object"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "damage_type": {
+            "enum": [
+              "dent",
+              "scratch",
+              "crack",
+              "crush",
+              "broken"
+            ],
+            "type": "string"
+          },
+          "panel": {
+            "enum": [
+              "front_bumper",
+              "rear_bumper",
+              "hood",
+              "fender",
+              "door",
+              "quarter_panel",
+              "roof",
+              "windshield",
+              "frame"
+            ],
+            "type": "string"
+          },
+          "severity": {
+            "type": "number"
+          },
+          "side": {
+            "enum": [
+              "left",
+              "right",
+              "center",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "panel",
+          "damage_type",
+          "side",
+          "severity",
+          "confidence",
+          "box"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "unmapped_damage": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "view": {
+      "enum": [
+        "front",
+        "rear",
+        "left",
+        "right",
+        "front_left",
+        "front_right",
+        "rear_left",
+        "rear_right",
+        "top",
+        "close_up",
+        "interior",
+        "unknown"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "view",
+    "findings",
+    "unmapped_damage"
+  ],
+  "title": "Detector answer",
+  "type": "object"
+}

@@ -1,0 +1,40 @@
+# COCO category mapping for the Humans in the Loop "Car Parts and Car Damages" dataset (CC0).
+# Class names are from the dataset page; check them against the downloaded annotations.
+# Its damage photos carry no part labels, so damage lands on default_panel with
+# default_severity: score those labels with `detect-eval --match-by type` only.
+
+damage:
+  Dent: dent
+  Scratch: scratch
+  Paint chip: scratch
+  Flaking: scratch
+  Cracked: crack
+  Broken part: broken
+  Missing part: broken
+  Corrosion: null        # no matching damage type in the cost model
+
+parts:
+  Front-bumper: {panel: front_bumper, side: center}
+  Back-bumper: {panel: rear_bumper, side: center}
+  Grille: {panel: front_bumper, side: center}
+  Headlight: {panel: front_bumper}
+  Tail-light: {panel: rear_bumper}
+  Hood: {panel: hood, side: center}
+  Roof: {panel: roof, side: center}
+  Windshield: {panel: windshield, side: center}
+  Fender: {panel: fender}
+  Front-door: {panel: door}
+  Back-door: {panel: door}
+  Quarter-panel: {panel: quarter_panel}
+  Back-windshield: null  # rear glass isn't a modeled panel
+  Trunk: null
+  Rocker-panel: null
+  Front-window: null
+  Back-window: null
+  Front-wheel: null
+  Back-wheel: null
+  Mirror: null
+  License-plate: null
+
+default_panel: door      # placeholder panel for damage with no part annotation
+default_severity: 0.5    # placeholder; severity isn't labeled in this dataset

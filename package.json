@@ -1,10 +1,30 @@
 {
   "name": "underscope",
   "private": true,
-  "packageManager": "pnpm@9.15.9",
+  "type": "module",
   "scripts": {
+    "dev": "tsx watch --clear-screen=false scripts/dev-server.ts",
+    "test:photos": "tsx scripts/test-grade-photos.ts",
+    "seed:codes": "tsx scripts/seed-dtc-codes.ts",
+    "seed:demo": "tsx scripts/seed-demo-scans.ts",
+    "test:codes": "tsx scripts/test-decode-codes.ts",
+    "typecheck": "tsc --noEmit",
+    "seed:vehicles": "tsx scripts/seed-vehicles.ts",
+    "test:decision": "tsx scripts/test-decision.ts",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "engine": "pnpm --filter @underscope/engine engine"
+    "engine": "pnpm --filter @underscope/engine engine",
+    "test:engine": "pnpm --filter @underscope/engine test",
+    "typecheck:engine": "pnpm --filter @underscope/engine typecheck"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "openai": "^7.53.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@vercel/node": "^30.0.0",
+    "dotenv": "^18.0.9",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }

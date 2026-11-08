@@ -1,0 +1,4 @@
+# Python runtime for api/route.py (the engine in engine/src). TS functions use package.json.
+pydantic>=2
+numpy
+pyyaml

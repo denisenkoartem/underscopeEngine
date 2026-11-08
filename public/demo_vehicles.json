@@ -1,0 +1,60 @@
+{
+  "note": "Sample vehicles for the demo. VINs have valid check digits but are not real cars; grades stand in for graded photos and values are illustrative, not market data.",
+  "vehicles": [
+    {
+      "id": "front-hit",
+      "label": "2018 Ford F-150, front-end hit",
+      "vin": "1FTEW1EP6JKD12345",
+      "title_status": "clean",
+      "codes": [],
+      "grades": { "front_bumper": "replace", "hood": "replace", "grille": "replace", "left_headlight": "replace", "left_front_fender": "repairable", "underbody": "unknown", "engine_bay": "unknown" },
+      "flags": { "airbags_deployed": false, "frame_suspected": false, "fluid_leak": "unknown" },
+      "values": { "clean_wholesale": 24500, "salvage_comps": [9800, 10400, 11200, 11900, 12600, 13100] },
+      "expect": "fix"
+    },
+    {
+      "id": "airbags",
+      "label": "2018 Chevrolet Express, airbags deployed",
+      "vin": "1GCWGAFP4J1123456",
+      "title_status": "salvage",
+      "codes": ["B0001", "B0010", "U0151"],
+      "grades": { "front_bumper": "replace", "hood": "replace", "grille": "replace", "windshield": "replace", "left_headlight": "replace", "right_headlight": "replace", "left_front_fender": "replace", "right_front_fender": "repairable", "interior": "replace", "engine_bay": "repairable", "underbody": "unknown" },
+      "flags": { "airbags_deployed": true, "frame_suspected": true, "fluid_leak": "unknown" },
+      "values": { "clean_wholesale": 19000, "salvage_comps": [5200, 5900, 6300, 6800, 7400] },
+      "expect": "sell_as_is"
+    },
+    {
+      "id": "transmission",
+      "label": "2017 GMC Sierra 2500HD, transmission fault, rear damage",
+      "vin": "1GT12UEY2HF123456",
+      "title_status": "unknown",
+      "codes": ["P0700", "P0730", "P0868"],
+      "grades": { "rear_bumper": "replace", "tailgate_or_rear_doors": "repairable", "left_taillight": "replace", "underbody": "unknown" },
+      "flags": { "airbags_deployed": false, "frame_suspected": "unknown", "fluid_leak": "unknown" },
+      "values": { "clean_wholesale": 33500, "salvage_comps": [17500, 18900, 19800, 21000, 22400, 23600] },
+      "expect": "too_close"
+    },
+    {
+      "id": "flood",
+      "label": "2016 Nissan NV, flood title, light damage",
+      "vin": "1N6BF0KM3GN812345",
+      "title_status": "flood",
+      "codes": ["P0562"],
+      "grades": { "interior": "repairable", "underbody": "repairable", "left_rear_door": "repairable" },
+      "flags": { "airbags_deployed": false, "frame_suspected": false, "fluid_leak": false },
+      "values": { "clean_wholesale": 14500, "salvage_comps": [7600, 8100, 8800, 9300, 9700] },
+      "expect": "sell_as_is"
+    },
+    {
+      "id": "nonrepairable",
+      "label": "2019 Ford Transit, non-repairable title",
+      "vin": "1FTYR2CM1KKA12345",
+      "title_status": "non_repairable",
+      "codes": ["C0035"],
+      "grades": { "left_front_door": "replace", "left_rear_door": "replace", "left_rear_quarter": "replace", "roof": "repairable" },
+      "flags": { "airbags_deployed": "unknown", "frame_suspected": true, "fluid_leak": false },
+      "values": { "clean_wholesale": 26000, "salvage_comps": [6400, 7100, 7800, 8200, 8900] },
+      "expect": "not_fixable"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "DamageFinding": {
+      "properties": {
+        "box": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Box"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "damage_type": {
+          "$ref": "#/$defs/DamageType"
+        },
+        "panel": {
+          "$ref": "#/$defs/Panel"
+        },
+        "photo_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Photo Ref"
+        },
+        "severity": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Severity",
+          "type": "number"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right",
+                "center"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Side"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "panel",
+        "damage_type",
+        "severity",
+        "confidence"
+      ],
+      "title": "DamageFinding",
+      "type": "object"
+    },
+    "DamageType": {
+      "enum": [
+        "dent",
+        "scratch",
+        "crack",
+        "crush",
+        "broken"
+      ],
+      "title": "DamageType",
+      "type": "string"
+    },
+    "Panel": {
+      "enum": [
+        "front_bumper",
+        "rear_bumper",
+        "hood",
+        "fender",
+        "door",
+        "quarter_panel",
+        "roof",
+        "windshield",
+        "frame"
+      ],
+      "title": "Panel",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "items": {
+      "$ref": "#/$defs/DamageFinding"
+    },
+    "type": "array"
+  },
+  "description": "Photo ref -> damage findings in that photo. Used for ground truth (detect-eval, calibrate), saved predictions, and the mock detector (--labels).",
+  "title": "Labels",
+  "type": "object"
+}

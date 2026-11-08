@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "DispositionOption": {
+      "properties": {
+        "components": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Components",
+          "type": "object"
+        },
+        "expected_cents": {
+          "title": "Expected Cents",
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "p10_cents": {
+          "title": "P10 Cents",
+          "type": "integer"
+        },
+        "p50_cents": {
+          "title": "P50 Cents",
+          "type": "integer"
+        },
+        "p90_cents": {
+          "title": "P90 Cents",
+          "type": "integer"
+        },
+        "path": {
+          "$ref": "#/$defs/Path"
+        }
+      },
+      "required": [
+        "path",
+        "expected_cents",
+        "p10_cents",
+        "p50_cents",
+        "p90_cents"
+      ],
+      "title": "DispositionOption",
+      "type": "object"
+    },
+    "Path": {
+      "enum": [
+        "repair_then_acv",
+        "acv_as_is",
+        "copart_salvage",
+        "part_out"
+      ],
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Output of evaluate --json (one object) and batch --out (one per line). Options are ranked best first; all money is integer cents.",
+  "properties": {
+    "answer": {
+      "default": "",
+      "title": "Answer",
+      "type": "string"
+    },
+    "explanation": {
+      "default": "",
+      "title": "Explanation",
+      "type": "string"
+    },
+    "findings_status": {
+      "description": "Whether a human checker confirmed the findings.",
+      "type": "string"
+    },
+    "flip_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Flip Conditions",
+      "type": "array"
+    },
+    "needs_human_review": {
+      "title": "Needs Human Review",
+      "type": "boolean"
+    },
+    "options": {
+      "items": {
+        "$ref": "#/$defs/DispositionOption"
+      },
+      "title": "Options",
+      "type": "array"
+    },
+    "review_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Reasons",
+      "type": "array"
+    },
+    "total_loss_decides": {
+      "default": false,
+      "title": "Total Loss Decides",
+      "type": "boolean"
+    },
+    "vin": {
+      "title": "Vin",
+      "type": "string"
+    },
+    "winner": {
+      "$ref": "#/$defs/Path"
+    }
+  },
+  "required": [
+    "vin",
+    "winner",
+    "options",
+    "needs_human_review",
+    "findings_status"
+  ],
+  "title": "Recommendation",
+  "type": "object"
+}

@@ -1,0 +1,153 @@
+# Every number below is a PLACEHOLDER. None is a real market figure.
+# Money is integer cents. Ranges are [low, expected, high].
+# Each section says what real data would replace it.
+
+meta:
+  status: PLACEHOLDER
+  note: Synthetic development values only; do not quote as market data.
+
+base_value:
+  status: PLACEHOLDER
+  replace_with: Clean wholesale value per VIN/trim/mileage/region from ACV market data (or VehicleRecord.clean_value_cents).
+  reference_year: 2026
+  new_value_cents: 3000000
+  depreciation_pct_per_year: 9
+  cents_per_mile: 4
+  floor_cents: 150000
+
+repair_cost:
+  status: PLACEHOLDER
+  replace_with: Shop estimate data (CCC/Mitchell-style) or dealer repair invoices by panel and damage type.
+  # Cost at severity 1.0 for a dent; scaled by damage type multiplier and by severity.
+  panel_base_cents:
+    front_bumper: [60000, 90000, 140000]
+    rear_bumper: [55000, 85000, 130000]
+    hood: [70000, 110000, 170000]
+    fender: [60000, 95000, 150000]
+    door: [80000, 120000, 190000]
+    quarter_panel: [120000, 180000, 280000]
+    roof: [150000, 230000, 360000]
+    windshield: [30000, 45000, 70000]
+    frame: [400000, 700000, 1100000]
+  damage_type_multiplier:
+    scratch: 0.4
+    dent: 1.0
+    crack: 1.2
+    crush: 2.0
+    broken: 2.5
+  min_severity_factor: 0.15   # severity 0 still costs this fraction of the full-severity cost
+
+market:
+  status: PLACEHOLDER
+  replace_with: Observed as-is vs repaired vs salvage sale prices from ACV and Copart results.
+  # Untuned: these were once adjusted to make the $600 dent case favor repair; that was reverted.
+  # See `python -m underscope.sensitivity` for how decisions move with them.
+  as_is_discount_multiple_of_repair: 1.3   # buyers deduct this multiple of expected repair cost
+  as_is_floor_fraction: 0.10
+  # A dealer buying a wreck on ACV only to resell it at salvage keeps this % of the salvage
+  # price as margin (on top of Copart's fee and transport). Real data: ACV bids on cars later
+  # relisted at Copart.
+  as_is_dealer_flip_margin_pct: 10
+  # Accident-history haircut on clean value, scaled by damage score (expected repair cost /
+  # clean value, capped at 1): a cosmetic fix carries little stigma, heavy damage the full %.
+  # Anchored just under the rebuilt-title discount (title.factor.rebuilt); not tuned to any case.
+  repaired_value_haircut_pct_at_total_damage: 20
+  salvage_fraction_of_clean: [0.10, 0.22, 0.34]   # before damage adjustment
+  salvage_damage_adjust_pct_per_unit_severity: 20 # extra % off salvage value per unit of damage score (cap 1)
+
+fees:
+  status: PLACEHOLDER
+  replace_with: Published seller fee schedules from ACV and Copart under a data partnership.
+  acv:
+    flat_cents: 25000
+    pct_of_price: 2.0
+  copart:
+    flat_cents: 15000
+    pct_of_price: 8.0
+
+transport:
+  status: PLACEHOLDER
+  replace_with: Carrier quotes by lane and vehicle class.
+  acv_cents: [20000, 40000, 70000]
+  copart_cents: [15000, 30000, 55000]
+  parts_cents: [10000, 20000, 35000]   # tow to dismantling bay
+
+timing:
+  status: PLACEHOLDER
+  replace_with: Observed days-on-lot and repair turnaround by path.
+  holding_cost_per_day_cents: 4000
+  repair_days: [3, 7, 20]
+  days_to_sell:
+    repair_then_acv: [7, 14, 30]
+    acv_as_is: [5, 10, 21]
+    copart_salvage: [10, 21, 40]
+    part_out: [30, 60, 120]
+
+title:
+  status: PLACEHOLDER
+  replace_with: Observed price discount of branded vs clean titles in auction results.
+  # Multiplier on value, keyed by title status, as [low, expected, high]. Uncertain like any
+  # market input; ranges are symmetric so the expected value is the middle number.
+  factor:
+    clean: [1.0, 1.0, 1.0]
+    rebuilt: [0.66, 0.78, 0.90]
+    salvage: [0.48, 0.60, 0.72]
+  # A repaired vehicle whose repair cost crosses the total-loss threshold gets this brand.
+  brand_after_total_loss_repair: rebuilt
+
+total_loss:
+  status: PLACEHOLDER
+  replace_with: State statutory total-loss thresholds (percent of ACV) and insurer practice.
+  default_threshold_pct: 75
+  threshold_pct_by_region:
+    NY: 75
+    CA: 100
+    TX: 100
+    FL: 80
+    MI: 75
+    OH: 70
+
+parts:
+  status: PLACEHOLDER
+  replace_with: Dismantler recovery data (parts catalog value, sell-through and days by part category).
+  gross_value_fraction_of_clean: [0.70, 0.95, 1.30]
+  sell_through: [0.35, 0.50, 0.65]
+  teardown_labor_cents: [80000, 120000, 180000]
+  storage_cents_per_day: 1500
+  engine_audio_abnormal_value_penalty_pct: 12   # engine parts worth less if audio flags a problem
+  # Share of whole-vehicle parts value that sits in each panel's area (damaged parts don't sell).
+  panel_share_of_parts_value:
+    front_bumper: 0.04
+    rear_bumper: 0.03
+    hood: 0.03
+    fender: 0.03
+    door: 0.04
+    quarter_panel: 0.03
+    roof: 0.02
+    windshield: 0.02
+    frame: 0.15
+  # Fraction of a panel's parts value destroyed at severity 1.0, by damage type.
+  damage_type_loss_factor:
+    scratch: 0.1
+    dent: 0.3
+    crack: 0.6
+    crush: 1.0
+    broken: 1.0
+
+hidden_damage:
+  status: PLACEHOLDER
+  replace_with: Post-repair surprise-cost history from partner shops or inspection-to-repair comparisons.
+  reserve_pct_of_repair: 15
+  undercarriage_extra_cents: 150000
+  engine_audio_extra_cents: 200000
+  unknown_flag_extra_cents: 30000   # flag absent: allowance for unseen damage
+
+simulation:
+  status: PLACEHOLDER
+  replace_with: Calibrated uncertainty from backtests on real outcomes.
+  draws: 1000
+  seed: 20260101
+  value_noise_sigma: 0.08      # lognormal sigma on market values
+  review_overlap_threshold: 0.35   # P(some other path beats winner in a paired draw) at/above this -> human review
+  low_confidence_threshold: 0.60   # mean finding confidence below this -> human review
+  total_loss_min_branded_share: 0.05   # threshold only "decides" if at least this share of draws cross it

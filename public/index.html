@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Underscope: fix or sell as-is</title>
+<meta name="description" content="Photos, fault codes and title in; two net ranges and a fix-or-sell-as-is recommendation out.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="appbar"><div class="in">
+  <a class="logo" href="/"><span class="logo-mark" aria-hidden="true"></span>Underscope</a>
+  <nav class="nav" aria-label="Main">
+    <a href="/" aria-current="page">Check a vehicle</a>
+    <a href="/integrate.html">Integrate</a>
+  </nav>
+  <span class="tag-built">Built for ACV at UB Hacking</span>
+</div></header>
+
+<div class="page">
+  <div class="page-head">
+    <h1>Where should this car go?</h1>
+    <p class="lede">Add the VIN, photos and scan-tool codes. Underscope prices the damage, compares repairing and reselling on ACV, selling as-is on ACV, salvage on Copart and parting it out, and tells you which nets the most.</p>
+  </div>
+
+  <section class="panel intake" aria-label="Vehicle intake">
+    <div class="panel-head"><h2>Vehicle</h2><button class="linkbtn" id="clear" type="button">Clear</button></div>
+    <form id="form" novalidate>
+      <div class="panel-body">
+        <div class="field">
+          <label for="vin">VIN</label>
+          <div class="vin-wrap"><input id="vin" class="vin" maxlength="17" autocomplete="off" spellcheck="false" placeholder="3MZBM1U73EM110438" aria-describedby="vin-hint"></div>
+          <div class="hint" id="vin-hint">17 characters, on the dash or the driver's door jamb.</div>
+        </div>
+
+        <fieldset>
+          <legend class="label">Title</legend>
+          <div class="seg">
+            <label><input type="radio" name="title" value="clean"><span>Clean</span></label>
+            <label><input type="radio" name="title" value="salvage"><span>Salvage</span></label>
+            <label><input type="radio" name="title" value="rebuilt"><span>Rebuilt</span></label>
+            <label><input type="radio" name="title" value="flood"><span>Flood</span></label>
+            <label><input type="radio" name="title" value="non_repairable"><span>Non-repairable</span></label>
+            <label><input type="radio" name="title" value="lemon"><span>Lemon</span></label>
+            <label><input type="radio" name="title" value="unknown" checked><span>Not sure</span></label>
+          </div>
+          <div class="hint" id="title-hint"></div>
+        </fieldset>
+
+        <div class="field">
+          <span class="label" id="photos-label">Photos</span>
+          <label class="drop" id="drop">
+            <input id="photo-input" type="file" accept="image/*" multiple hidden>
+            <span class="drop-main">Drop photos or <u>browse</u></span>
+            <span class="drop-sub">All sides, interior, engine bay, underbody. Up to 30.</span>
+          </label>
+          <ol class="thumbs" id="thumbs" aria-labelledby="photos-label"></ol>
+          <div class="hint" id="photos-hint"></div>
+        </div>
+
+        <div class="field">
+          <span class="label" id="codes-label">Trouble codes</span>
+          <div class="tags" id="codes"><input id="code-input" autocomplete="off" spellcheck="false" placeholder="P0300" aria-labelledby="codes-label"></div>
+          <div class="hint" id="codes-hint"></div>
+        </div>
+
+        <p class="subhead">Market values</p>
+        <div class="two">
+        <div class="field">
+          <label for="clean">Clean wholesale value</label>
+          <div class="money"><span>$</span><input id="clean" inputmode="numeric" autocomplete="off" placeholder="18000"></div>
+          <div class="hint" id="clean-hint">Same year, model and mileage, no damage, clean title.</div>
+        </div>
+        <div class="field">
+          <span class="label" id="comps-label">Salvage comps (sold prices)</span>
+          <div class="tags" id="comps"><input id="comp-input" inputmode="numeric" autocomplete="off" placeholder="6500" aria-labelledby="comps-label"></div>
+          <div class="hint" id="comps-hint"></div>
+        </div>
+        </div>
+
+        <details class="assume">
+          <summary>Fees, labor and timing</summary>
+          <div class="assume-grid" id="assume"></div>
+        </details>
+      </div>
+    </form>
+    <div class="intake-foot">
+      <button class="btn btn-primary" id="go" type="submit" form="form">Run check</button>
+      <span class="hint" style="margin:0" id="go-hint"></span>
+    </div>
+  </section>
+
+  <section class="panel result" id="result" hidden aria-live="polite"></section>
+
+  <section class="panel empty" id="empty">
+    <h2>Sample vehicles</h2>
+    <p>Made-up VINs, grades and values. Each one lands on a different outcome.</p>
+    <table class="sample-table">
+      <thead><tr><th>Vehicle</th><th>VIN</th><th>Title</th><th></th></tr></thead>
+      <tbody id="samples"></tbody>
+    </table>
+    <p style="margin:18px 0 0;font-size:13.5px">Looking at a listing somewhere else? The <a href="/integrate.html#bookmarklet">bookmarklet</a> pulls the VIN off the page and opens it here.</p>
+  </section>
+</div>
+
+<footer>
+  <span>Underscope is an independent UB Hacking project, not affiliated with or endorsed by ACV Auctions.</span>
+  <span>Repair costs and sample values are estimates.</span>
+</footer>
+<div class="toast" id="toast" role="status"></div>
+<script src="/app.js"></script>
+</body>
+</html>

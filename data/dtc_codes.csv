@@ -1,0 +1,61 @@
+code,description,system,severity,cost_low,cost_high
+P0300,Random/multiple cylinder misfire detected,engine,major,150,2500
+P0301,Cylinder 1 misfire detected,engine,moderate,100,1200
+P0302,Cylinder 2 misfire detected,engine,moderate,100,1200
+P0304,Cylinder 4 misfire detected,engine,moderate,100,1200
+P0306,Cylinder 6 misfire detected,engine,moderate,100,1200
+P0308,Cylinder 8 misfire detected,engine,moderate,100,1200
+P0171,System too lean (bank 1),engine,moderate,100,800
+P0174,System too lean (bank 2),engine,moderate,100,800
+P0172,System too rich (bank 1),engine,moderate,100,800
+P0101,Mass air flow sensor circuit range/performance,engine,minor,80,400
+P0113,Intake air temperature sensor 1 circuit high,engine,minor,50,250
+P0128,Coolant temperature below thermostat regulating temperature,engine,minor,150,450
+P0217,Engine coolant over temperature condition,engine,critical,500,6000
+P0335,Crankshaft position sensor A circuit,engine,moderate,150,600
+P0340,Camshaft position sensor A circuit (bank 1),engine,moderate,150,600
+P0016,Crankshaft/camshaft position correlation (bank 1 sensor A),engine,major,300,3500
+P0521,Engine oil pressure sensor/switch range/performance,engine,major,100,4000
+P0524,Engine oil pressure too low,engine,critical,200,6000
+P0087,Fuel rail/system pressure too low,engine,major,200,2000
+P0234,Turbocharger/supercharger A overboost condition,engine,major,200,2500
+P0299,Turbocharger/supercharger A underboost condition,engine,moderate,150,2500
+P0420,Catalyst system efficiency below threshold (bank 1),emissions,moderate,300,2500
+P0430,Catalyst system efficiency below threshold (bank 2),emissions,moderate,300,2500
+P0442,Evaporative emission system leak detected (small leak),emissions,minor,50,400
+P0455,Evaporative emission system leak detected (large leak),emissions,minor,30,400
+P0456,Evaporative emission system leak detected (very small leak),emissions,minor,30,300
+P0401,Exhaust gas recirculation flow insufficient,emissions,moderate,150,800
+P0133,O2 sensor circuit slow response (bank 1 sensor 1),emissions,minor,100,350
+P0135,O2 sensor heater circuit (bank 1 sensor 1),emissions,minor,100,350
+P0141,O2 sensor heater circuit (bank 1 sensor 2),emissions,minor,80,300
+P0411,Secondary air injection system incorrect flow,emissions,moderate,200,1200
+P2002,Diesel particulate filter efficiency below threshold (bank 1),emissions,major,500,4000
+P20EE,SCR NOx catalyst efficiency below threshold (bank 1),emissions,major,400,4000
+P2463,Diesel particulate filter soot accumulation,emissions,moderate,200,2500
+P0500,Vehicle speed sensor A,transmission,moderate,100,400
+P0700,Transmission control system malfunction (MIL request),transmission,moderate,100,3500
+P0715,Input/turbine speed sensor A circuit,transmission,moderate,150,600
+P0730,Incorrect gear ratio,transmission,major,500,4500
+P0741,Torque converter clutch circuit performance or stuck off,transmission,major,400,3000
+P0750,Shift solenoid A,transmission,moderate,150,900
+P0868,Transmission fluid pressure low,transmission,major,300,4000
+P0218,Transmission fluid over temperature condition,transmission,major,200,4500
+C0035,Left front wheel speed sensor circuit,brakes/ABS,minor,80,300
+C0040,Right front wheel speed sensor circuit,brakes/ABS,minor,80,300
+C0045,Left rear wheel speed sensor circuit,brakes/ABS,minor,80,300
+C0050,Right rear wheel speed sensor circuit,brakes/ABS,minor,80,300
+C0110,ABS pump motor circuit,brakes/ABS,moderate,300,1500
+B0001,Driver frontal stage 1 deployment control,airbag/SRS,critical,1000,4000
+B0002,Driver frontal stage 2 deployment control,airbag/SRS,critical,1000,4000
+B0010,Passenger frontal stage 1 deployment control,airbag/SRS,critical,1000,4000
+B0020,Left side airbag deployment control,airbag/SRS,critical,800,3000
+U0151,Lost communication with restraints control module,airbag/SRS,major,150,1200
+U0100,Lost communication with ECM/PCM A,electrical,major,150,1500
+U0101,Lost communication with TCM,electrical,major,150,1500
+U0121,Lost communication with ABS control module,electrical,moderate,150,1200
+U0140,Lost communication with body control module,electrical,moderate,100,1000
+P0562,System voltage low,electrical,minor,100,400
+P0563,System voltage high,electrical,moderate,100,600
+P0620,Generator control circuit,electrical,moderate,200,700
+P0606,Control module processor fault,electrical,major,400,1500
