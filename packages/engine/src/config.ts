@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { CATEGORIES, FLAG_NAMES, FLAG_VALUES, RUN_STATUSES, TITLE_BRANDS } from "./types.js";
+import { CATEGORIES, FLAG_NAMES, FLAG_VALUES, RUN_STATUSES, SYMPTOM_SYSTEMS, TITLE_BRANDS } from "./types.js";
 
 /** packages/engine */
 export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -74,6 +74,8 @@ const ScoringSchema = z.object({
   drivable: z.object({
     ...(Object.fromEntries(RUN_STATUSES.map((s) => [s, Row])) as Record<(typeof RUN_STATUSES)[number], typeof Row>),
     severe_code_modifier: z.object({ acv: z.number(), copart: z.number() }),
+    /** reported_symptoms systems that make a record severe (the modifier is still applied once in total). */
+    severe_symptom_systems: z.array(z.enum(SYMPTOM_SYSTEMS)),
   }),
   hidden_risk: z.object({
     counts: z.array(z.enum(FLAG_NAMES)),

@@ -2,9 +2,9 @@
 
 ## What it does
 
-1. It reads one JSON record of a damaged vehicle: title, run status, five hidden-risk flags, scanner codes and seller lanes.
+1. It reads one JSON record of a damaged vehicle: title, run status, five hidden-risk flags, scanner codes, seller lanes and reported symptoms. The record can be written by hand or by the [free-text parser](#free-text-parser-gemini), which turns notes such as "transmission is generating noise" into a record.
 2. It scores two sale options, ACV (dealer wholesale) and Copart (as-is salvage), in four categories: title, drivable, hidden_risk and market_fit. Each score runs from -1 to +1 and has a confidence.
-3. market_fit comes from one Anthropic API call with web search, cached for 7 days. It uses a fallback table when the engine runs offline, has no key, the call fails, or the search finds too little.
+3. market_fit comes from the record's own `market_fit` block when it has one that is not "insufficient" (the parser writes it with Gemini and Google Search). Otherwise it comes from one Anthropic API call with web search, cached for 7 days, or from a fallback table when the engine runs offline, has no key, the call fails, or the search finds too little.
 4. The combiner applies hard exclusions, sums weight x score x confidence for each option, and turns the two sums into probabilities with a softmax.
 5. It returns a Decision: a recommendation, probabilities, a confidence (clear, close_call or insufficient), the one thing to verify first, and reasons and risks built from the numbers.
 
@@ -22,21 +22,23 @@ Run these from `packages/engine`:
 
 ```sh
 pnpm typecheck
-pnpm test                                    # vitest, fully offline, no API key needed
+pnpm test                                    # vitest: 248 tests in 11 files, fully offline, no API key needed
 pnpm -s engine decide  <file.json> [--offline] [--as-of <year>]   # Decision JSON
 pnpm -s engine explain <file.json> [--offline] [--as-of <year>]   # contribution table
 pnpm -s engine market  <file.json> [--offline] [--as-of <year>]   # market-fit result only
 pnpm -s engine eval [--offline]              # all examples/*.json vs their .expected.md
 pnpm -s engine samples ../../sample_vehicles.json [--use-shipped-config]
+pnpm -s engine parse "<notes>" [--out <file.json>] [--no-market] [--decide [--as-of <year>]]   # needs GOOGLE_API_KEY
+pnpm -s engine parse --file <notes.txt> [same options]
 ```
 
 The repo root `package.json` forwards `pnpm engine ...` to this package, so the same commands work from the root (for example `pnpm -s engine samples sample_vehicles.json`).
 
 - Use `-s`. Without it, pnpm prints its script banner to stdout before the output, so `pnpm engine decide ... > out.json` is not valid JSON. The engine's own logs go to stderr.
 - A file argument is looked up relative to the directory where you ran pnpm, then the current directory, then `packages/engine`. A `*` in the file name is expanded and must match exactly one file. Quote it so your shell does not expand it: `pnpm -s engine explain 'examples/03_*.json' --offline`.
-- `--offline` never calls the API. Market fit then uses the fallback table.
+- `--offline` never calls the API. Market fit then uses the record's own `market_fit` block when it is not insufficient, else the fallback table.
 - `--as-of <year>` is the year used to compute vehicle age for the fallback table. The default is the current calendar year. The examples are pinned to 2026, so pass `--as-of 2026` to reproduce their expected answers with `decide` or `explain`. `eval` reads the year from each `.expected.md`. `samples` takes the year from the file's `generated` date and rejects `--as-of`.
-- Exit code 1 on input, config or usage errors (the message goes to stderr), on any `eval` FAIL, and on any `samples` FAIL in the default mode.
+- Exit code 1 on input, config or usage errors (the message goes to stderr), on any `eval` FAIL, on any `samples` FAIL in the default mode, and on the `parse` failures listed in [Errors and exit codes](#errors-and-exit-codes).
 
 ### Live market fit
 
@@ -47,10 +49,184 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 - A variable already set in the shell wins over `packages/engine/.env`, which wins over the repo-root `.env`. An empty key counts as missing. A `.env` that exists but cannot be read is skipped with a warning. `.env` is git-ignored.
-- With a key and without `--offline`, `decide`, `explain`, `market` and `eval` make one market-fit call per vehicle profile (retried once if the answer is missing or invalid). A fresh cache entry means no call.
+- With a key and without `--offline`, `decide`, `explain`, `market` and `eval` make one market-fit call per vehicle profile (retried once if the answer is missing or invalid). A fresh cache entry means no call, and so does a record whose own `market_fit` block is not insufficient.
 - Each API request logs its tokens, web searches and cost in USD to stderr. `eval` prints the total API cost of the run.
 - The cache lives in `packages/engine/.cache/market` (git-ignored; override with `MARKET_CACHE_DIR`). The key is year, make, model, trim, odometer band (25,000-mile buckets), title brand and run status. Entries expire after 7 days. Only API results are stored, including "insufficient" ones so a thin-data profile is not billed again. Fallbacks are never stored.
 - Other environment variables: `MARKET_MODEL` (default `claude-sonnet-5-5`), `MARKET_TIMEOUT_MS` (per-request timeout, default 300000), `UNDERSCOPE_RULES_PATH` (see [Code sets](#code-sets-rulesmd-and-codesetsjson)).
+
+## Free-text parser (Gemini)
+
+`parse` turns a seller's free-text notes into an engine input record and prints it as JSON. One Gemini call fills the fields the notes support (run status, title, flags, codes, reported symptoms and the rest). A second call, with Google Search, adds a `market_fit` block, which the engine then uses instead of its own Anthropic call.
+
+### Setup
+
+- Add `GOOGLE_API_KEY=...` to the repo-root `.env`. `packages/engine/.env` and the shell also work, with the same precedence as the Anthropic key. `GEMINI_API_KEY` is an alias. An empty value counts as missing, and then `parse` exits 1 before it builds a client. The key must be a Gemini Developer API key from Google AI Studio, not a Vertex AI key. It is never printed: error text is scrubbed of it.
+- `PARSER_MODEL`: the extraction model, default `gemini-3.8-flash`. The `gemini-2.5-*` models return 404 "no longer available to new users" for this key. `PARSER_MARKET_MODEL`: the market-call model, default the same as `PARSER_MODEL`.
+- `PARSER_TIMEOUT_MS`: the per-request timeout, default 180000. It is kept in 1000..1800000: a value outside that range is clamped, and a value that is not a positive number gives the default, each with a warning. The SDK also sends it to the server as its deadline.
+
+### Commands
+
+```sh
+pnpm -s engine parse "transmission is generating noise"
+pnpm -s engine parse --file notes.txt --out record.json      # also write the JSON to a file
+pnpm -s engine parse "transmission is generating noise" --no-market
+pnpm -s engine parse --file notes.txt --decide --as-of 2026  # then print the Decision too
+pnpm -s engine decide record.json --offline                  # the saved JSON is valid engine input
+```
+
+- stdout is the JSON only (2-space indent), so use `pnpm -s`. Logs go to stderr: a `parse: calling <model> (<call>) ...` line before each request and a usage line after it, for example `parse: gemini call (extraction): model=gemini-3.8-flash finish=STOP prompt=1187 candidates=88 thoughts=0 tool_use_prompt=0 search_queries=0 latency=2.9s cost: n/a (pricing not configured)`.
+- `--file <path>` reads the notes from a file, looked up like the other file arguments (a byte-order mark is fine). Give the text or `--file`, not both. Notes over 20,000 characters are refused.
+- `--out <file>` also writes the JSON to that file, relative to the directory where you ran pnpm.
+- `--no-market` skips the market call.
+- `--decide` then runs the engine on the JSON offline and prints the Decision as a second JSON document. The parsed `market_fit` block is used when it is not insufficient, else the fallback table. `--as-of <year>` works only with `--decide`. `--offline` is a usage error on `parse`.
+
+### Output
+
+One JSON object:
+
+- Every record field is present. Enums the notes do not mention are `"unknown"`, other fields `null`. `codes` is `null` when the notes mention no scan and `[]` when they say a scan found no codes.
+- `reported_symptoms`: `[{system, text}]`, every mechanical or electrical complaint in the user's words.
+- `market_fit` (only when the market call succeeded): `{acv, copart, confidence, signals: [{claim, url}], insufficient, provider, generated_at}`, with `provider` such as `"gemini-3.8-flash + Google Search"`.
+- `parser`: the extraction model, `market_model` (`null` when no market call was made), `input_text`, `field_evidence` (field -> quote), `unknown_fields`, `unmapped` (things that fit no field, e.g. "new tires"), `notes` (resets, dropped codes, why market fit was left out), `search_queries` and per-call `usage`.
+
+The real output of `pnpm -s engine parse "transmission is generating noise" --no-market --decide` on 2026-11-07 (the first JSON document, as printed):
+
+```json
+{
+  "vin": null,
+  "decoded": {
+    "year": null,
+    "make": null,
+    "model": null,
+    "trim": null
+  },
+  "odometer": null,
+  "location_state": null,
+  "title": {
+    "brand": "unknown",
+    "state": null
+  },
+  "runs_drives": "run_and_drive",
+  "flags": {
+    "frame": "unknown",
+    "airbag": "unknown",
+    "flood": "unknown",
+    "module_no_comm": "unknown",
+    "monitors_incomplete": "unknown"
+  },
+  "codes": null,
+  "seller": {
+    "lanes_allowed": null
+  },
+  "reported_symptoms": [
+    {
+      "system": "transmission",
+      "text": "transmission is generating noise"
+    }
+  ],
+  "parser": {
+    "model": "gemini-3.8-flash",
+    "market_model": null,
+    "input_text": "transmission is generating noise",
+    "field_evidence": {
+      "runs_drives": "transmission is generating noise",
+      "reported_symptoms[0]": "transmission is generating noise"
+    },
+    "unknown_fields": [
+      "vin",
+      "decoded.year",
+      "decoded.make",
+      "decoded.model",
+      "decoded.trim",
+      "odometer",
+      "location_state",
+      "title.brand",
+      "title.state",
+      "flags.frame",
+      "flags.airbag",
+      "flags.flood",
+      "flags.module_no_comm",
+      "flags.monitors_incomplete",
+      "codes"
+    ],
+    "unmapped": [],
+    "notes": [
+      "market fit skipped (--no-market)"
+    ],
+    "search_queries": [],
+    "usage": [
+      {
+        "call": "extraction",
+        "model": "gemini-3.8-flash",
+        "prompt_tokens": 1187,
+        "candidates_tokens": 88,
+        "thoughts_tokens": 0,
+        "tool_use_prompt_tokens": 0,
+        "search_queries": 0,
+        "latency_ms": 2940,
+        "finish_reason": "STOP"
+      }
+    ]
+  }
+}
+```
+
+The Decision after it was ACV, P(ACV) 0.5548, insufficient, verify_first "confirm title brand" (unknown title and five unknown flags). Its drivable factors include `Severe: reported symptom: transmission -> modifier applied once` and `Reported symptom: transmission ("transmission is generating noise")`.
+
+### Never-guess rules
+
+The prompt (`prompts/parse_record.md`) tells the model to fill a field only when the notes support it, with an exact quote as evidence, and never to invent a VIN, year, make, model, trim, mileage, state or code. A flag is `"yes"` only when the notes state the problem as fact ("airbags deployed"), `"suspected"` when they describe signs ("water line", "airbag light on"), and `"no"` only when they say it was checked and is fine. A noise while driving means the vehicle drives.
+
+The code then re-checks every answer. A field that fails is reset to `"unknown"` or `null`, with a WARNING on stderr and a line in `parser.notes`:
+
+- **Quote.** Every evidence quote must be in the notes (case, spacing and quote style are ignored).
+- **Value shown.** The quote must show the value. The VIN must have 17 valid characters and be written in the notes. The year must appear as "2019", "'19", or "19" right before the make or model ("19 F-150", not "19 mph"). Make, model and trim must appear as written, ignoring case and punctuation (Chevy, VW, Mercedes, Benz and Caddy count for their makes). The mileage must be a number with a unit or context: mi, miles, k, thousand, mil or millas after it, or odometer, odo or mileage next to it. Kilometres, a token such as F-150 and a bare year do not count. A state must appear as its name or 2-letter code; codes that are also words (IN, OR, OK, ME and others) count only in upper case.
+- **Keywords.** A title brand needs its word in the quote: clean, rebuilt, salvage, or nonrepairable / non-repairable / parts only / junk (Spanish limpio, reconstruido, salvamento and no reparable also count). So "totaled" alone sets nothing. A lane limit must name each allowed lane: "dealer" or "ACV" for ACV, "salvage", "Copart" or "auction" for Copart. An empty lane list is refused. Both fields decide hard exclusions.
+- **Words.** The run status, a flag, a "scan found no codes" answer and a symptom need a quote with a word of 3 or more letters, so a quote such as "e" supports nothing.
+- **Names.** Make, model and trim go into the market prompt, so each must be a plain name: at most 40 characters, only letters, digits, spaces and `. & / + ( ) ' -`, no VIN-shaped token, and no reported symptom's words.
+- **Codes.** Only OBD-II codes written in the notes are kept, each once. A "confirmed" code becomes pending or history when the notes say pending, history, past or cleared right after it, in the same clause. A code in the notes that the model left out is not added back; if no code was kept, `codes` stays `null`, not `[]`.
+- **Symptoms.** The text must be in the notes. A symptom that only repeats the run-status quote of a vehicle that does not drive ("does not start") is dropped, so the same words do not count twice in drivable.
+
+### Calls, latency and cost
+
+`parse` makes at most two Gemini calls:
+
+1. **Extraction** (`prompts/parse_record.md`): structured JSON output, low thinking, no tools.
+2. **Market fit** (`prompts/parse_market.md`), only when year, make and model are known (otherwise `parser.notes` says which is missing): the Google Search tool, low thinking, and the answer as one JSON object in the reply text. It sends only year, make, model, trim, odometer, location state, title brand and run status, never the notes, VIN, flags, codes or symptoms. The scores are checked with the engine's `MarketFitBlockSchema`. Signals need an http(s) URL; those matching a grounding source come first; at most five are kept. A reply without Google Search grounding counts as invalid.
+
+Each call is retried once on invalid output. Each request is retried once on a transient error (408, 429, 5xx or a network error), after 1 s, or after a 429's RetryInfo delay capped at 60 s. These are not retried: a timeout (it already waited the full timeout), a 429 with quota limit 0, and a 429 with neither a quota id nor a retry delay (an exhausted quota, which waiting does not fix). A 429 that asks for a longer wait is still retried after 60 s; for the free tier's daily limit that retry fails too, which costs a minute and one more request. A parse usually makes 2 requests (1 with `--no-market`) and at most 8.
+
+- **Latency.** Nine live extractions on 2026-11-07 took 2.9 s to 93.5 s, seven of them under 21 s, with 1,187-1,273 prompt tokens, 88-490 output tokens and 0 thought tokens (once 505). The model is sometimes overloaded; see [Known limits](#known-limits).
+- **Cost.** No Gemini pricing is configured: `GEMINI_PRICING_PER_MTOK` in `src/gemini.ts` is empty on purpose, so each usage line ends `cost: n/a (pricing not configured)`. A row filled from Google's pricing page turns on a token-only estimate, without Search grounding. The key used on 2026-11-07 is on the free tier: no charge, but at most 20 requests per day for `gemini-3.8-flash`.
+
+### Errors and exit codes
+
+An extraction failure exits 1 with a one-line `Error: ...` on stderr and prints no JSON. A 401, 402, 403 or 404 on the market call also exits 1, but the record is printed first (and written with `--out`) without `market_fit`, `parser.notes` says why, and `--decide` does not run. That message starts `market call failed:` and ends `(the record above was printed without market_fit; --no-market skips the market call)`. Any other market failure (400, 429, 5xx, a timeout, a network error, invalid output twice, no Search grounding) only leaves `market_fit` out, with a WARNING and a line in `parser.notes`, and exits 0. A 429 there adds a hint that Google Search grounding may have its own quota and that `--no-market` skips the call.
+
+| Failure | Message (`(...)` is the API's own text) |
+| --- | --- |
+| No key | `GOOGLE_API_KEY is not set: add GOOGLE_API_KEY=... to .env at the repo root or in packages/engine (GEMINI_API_KEY also works)` |
+| 400 bad key | `Gemini API rejected the key (400 API_KEY_INVALID): check GOOGLE_API_KEY in .env` |
+| 401 | `Gemini API rejected the key (401): check GOOGLE_API_KEY in .env (...)` |
+| 402 | `Gemini API returned 402: the prepaid credits are used up; add credits in Google AI Studio billing and retry` |
+| 403 | `Gemini API returned 403 (permission denied): the key must be a Gemini Developer API key with the Generative Language API enabled (...)` |
+| 404 | `Gemini API returned 404 for model "<model>": set PARSER_MODEL to an available model (...)` (on the market call the model is `PARSER_MARKET_MODEL` when that is set) |
+| 429 without details | `Gemini API quota exhausted (429): check the plan and billing in Google AI Studio (...)` |
+| 429 | `Gemini API quota or rate limit exceeded (429) after one retry (quota <id>; limit <n>; retry after <s> s): ...` (a limit of 0 adds that the key has no quota for it) |
+| 503 | `Gemini model "<model>" is overloaded or unavailable (503) after one retry: try again in a few minutes, or pick another model with PARSER_MODEL / PARSER_MARKET_MODEL (...)` |
+| 504 | `Gemini API gave up on the <model> request (504) after one retry: ...`, with the same advice plus raising `PARSER_TIMEOUT_MS` |
+| Timeout | `Gemini call to <model> timed out after <s> s (raise PARSER_TIMEOUT_MS to wait longer)` |
+| Bad output | `Gemini returned invalid extraction output twice (...)` |
+
+### Input fields the parser adds
+
+Any input record, written by hand or by the parser, may carry three optional keys. Other unknown keys are still an input error, and `null` means the same as an absent key.
+
+| Key | Shape | Use |
+| --- | --- | --- |
+| `reported_symptoms` | `[{system, text}]`. `system` is one of transmission, engine, brakes, steering_suspension, electrical, body, interior, other. `text` is the user's words, not empty. | Drivable: a symptom whose system is in `severe_symptom_systems` makes the record severe (the modifier is still added once in total), and every symptom adds a factor. Never hidden risk. Absent means `[]`. |
+| `market_fit` | `{acv, copart, confidence, signals, insufficient, provider, generated_at}`, all required. acv and copart in [-1, 1], confidence in [0, 1], at most 5 signals `{claim, url}`, a non-empty provider, and generated_at an ISO date or date-time. A signal url is http(s), or empty, null or absent (that signal is then dropped). | Market fit with source `"provided"` when `insufficient` is false (see [The four scorers](#the-four-scorers)). An out-of-range value is an input error, never clamped. |
+| `parser` | any object | Ignored. |
 
 ## How it works
 
@@ -62,10 +238,12 @@ flowchart TD
     TITLE["title.ts: scoring.json title row, 'excluded' removes an option"]
     DRIV["drivable.ts: run-status row, plus severe_code_modifier once if severe"]
     HID["hiddenRisk.ts: count unknown or suspected flags, by_count row"]
-    MKT{"marketFit.ts: --offline or no API key?"}
+    PROV{"marketFit.ts: record has a market_fit block that is not insufficient?"}
+    MKT{"--offline or no API key?"}
     CACHE{"Fresh cache entry (7-day TTL)?"}
     WEB["Anthropic API with web search, answer via report_market_fit tool"]
     FB["Fallback table: scoring.json market_fit_fallback"]
+    PROV -->|"no (or insufficient)"| MKT
     MKT -->|yes| FB
     MKT -->|no| CACHE
     CACHE -->|no| WEB
@@ -75,7 +253,7 @@ flowchart TD
   NORM --> TITLE
   NORM --> DRIV
   NORM --> HID
-  NORM --> MKT
+  NORM --> PROV
 
   subgraph COMBINER["combine.ts"]
     EXC["Exclusions: title 'excluded' and seller.lanes_allowed"]
@@ -107,6 +285,7 @@ flowchart TD
   CACHE -->|"yes: cached web result"| EXC
   WEB -->|"valid report"| EXC
   FB --> EXC
+  PROV -->|"yes: source provided, no API call"| EXC
   VF --> DEC["Decision JSON"]
   OVR --> DEC
   CFG[("config/*.json and the RULES.md codesets block")] -.-> SCORERS
@@ -118,11 +297,13 @@ flowchart TD
 | Category | File | How it scores |
 | --- | --- | --- |
 | title | `src/title.ts` | Row `scoring.json` `title.<brand>`. A value `"excluded"` removes that option (its score is reported as 0). |
-| drivable | `src/drivable.ts` | Row `drivable.<runs_drives>`. If the record is severe, `severe_code_modifier` is added once, then each score is clamped to [-1, 1]. Severe means: a `severe_when` entry holds on confirmed codes, or `flags.frame` is `"yes"`, or `flags.airbag` is `"yes"`. Pending and history codes never count. |
+| drivable | `src/drivable.ts` | Row `drivable.<runs_drives>`. If the record is severe, `severe_code_modifier` is added once, then each score is clamped to [-1, 1]. Severe means: a `severe_when` entry holds on confirmed codes, or `flags.frame` is `"yes"`, or `flags.airbag` is `"yes"`, or a reported symptom's system is in `severe_symptom_systems` (transmission, engine). Pending and history codes never count. Each reported symptom adds a factor with the user's words, e.g. `Reported symptom: transmission ("transmission is generating noise")`. Symptoms are disclosed problems, so they never count as hidden risk. |
 | hidden_risk | `src/hiddenRisk.ts` | Counts the flags in `hidden_risk.counts` whose value is in `count_as_risk` (`unknown`, `suspected`), then looks up `by_count` `"0"`, `"1"`, `"2"` or `"3+"`. A `"yes"` is a disclosed problem, not a hidden one, so it never counts here. The counted flags are the verify_first candidates. |
-| market_fit | `src/marketFit.ts` | Web, cache or fallback (below). |
+| market_fit | `src/marketFit.ts` | Provided, web, cache or fallback (below). |
 
 Market fit sends only year, make, model, trim, odometer, location state, title brand and run status. It never sends the VIN, flags or codes. The prompt is `prompts/market_fit.md`. The model must answer through a strict custom tool, `report_market_fit`, with `{acv, copart, confidence, signals, insufficient}`. The engine checks the answer with zod. An out-of-range score is invalid: it retries once, then falls back. Signals without an http(s) URL are dropped, and at most five are kept. Only the model's acv, copart and confidence numbers enter the Decision. Prices may appear only in signal text.
+
+A `market_fit` block in the input record (written by the parser) is checked first. When its `insufficient` is false, its acv, copart and confidence are used as given, with source `"provided"`: no API call and no cache, also with `--offline`. The factors are built in code from the scores, the provider, the date and the cited domains, never from claim text. Signals without an http(s) URL are dropped. A block marked insufficient is not used: the normal path below runs and a last factor says so.
 
 The fallback is used for `--offline`, a missing key, an API error, a refusal, a run where every web search failed, invalid output twice, an "insufficient" answer, or a turn that paused after 5 web searches. The fallback rows are tried in file order. The first rule that holds wins, else the `otherwise` row. Rules see `age_years` (as-of year minus model year) and `odometer`. A comparison on an unknown value is false. Fallback confidence is 0.4 and the source is `"fallback"`.
 
@@ -145,10 +326,10 @@ The fallback is used for `--offline`, a missing key, an API error, a refusal, a 
 | `probabilities` | `{acv, copart}`, 4 decimals, sum to 1 (both 0 when no option is eligible) |
 | `confidence` | `"clear"`, `"close_call"` or `"insufficient"` |
 | `verify_first` | a flag name, `"confirm title brand"`, or `null` |
-| `category_scores` | for each category: `acv`, `copart`, `confidence`, `factors`, `source` (`input`, `web`, `cache`, `fallback`) |
+| `category_scores` | for each category: `acv`, `copart`, `confidence`, `factors`, `source` (`input`, `web`, `cache`, `fallback`, `provided`) |
 | `reasons` | exactly 3 strings |
 | `risks` | exactly 2 strings |
-| `market_signals` | `[{claim, url}]` from the web analysis; `[]` for the fallback |
+| `market_signals` | `[{claim, url}]` from the web analysis or the provided block; `[]` for the fallback |
 | `weights_version` | `version` from `config/weights.json` |
 | `excluded` | `[{option, reason}]` for each removed option |
 
@@ -200,6 +381,7 @@ All numbers live in JSON. `loadConfig()` in `src/config.ts` reads and validates 
 | `scoring.json` | `title.<brand>` | `{acv, copart, confidence?}` per brand: clean, rebuilt, salvage, nonrepairable, unknown. `"excluded"` removes the option. |
 | `scoring.json` | `drivable.<status>` | Rows for run_and_drive, engine_starts, no, unknown. |
 | `scoring.json` | `drivable.severe_code_modifier` | `{acv, copart}` added once when the record is severe. |
+| `scoring.json` | `drivable.severe_symptom_systems` | `reported_symptoms` systems that make a record severe (shipped: transmission, engine). The modifier is still added once in total. |
 | `scoring.json` | `hidden_risk.counts` | Which flags can count as hidden risk. |
 | `scoring.json` | `hidden_risk.count_as_risk` | Which flag values count (`unknown`, `suspected`). |
 | `scoring.json` | `hidden_risk.by_count` | Rows for 0, 1, 2 and 3+ counted flags. |
@@ -213,7 +395,7 @@ A row's `confidence` defaults to 1.0 when the row does not set it.
 
 After a change, run `pnpm -s engine eval --offline` and `pnpm test`. The examples' `.expected.md` files and the tests were computed by hand from the shipped numbers, so they will report every answer that moved. Update them on purpose; do not tune numbers to make them pass.
 
-A few numbers are constants in the TypeScript source, not JSON: the cache TTL and odometer band (`src/cache.ts`), and the token prices, web-search price, search and retry caps and default timeout (`src/marketFit.ts`). `tsx` runs the source directly, so these need no build step either, but some tests pin them.
+A few numbers are constants in the TypeScript source, not JSON: the cache TTL and odometer band (`src/cache.ts`), the token prices, web-search price, search and retry caps and default timeout (`src/marketFit.ts`), the parser's default model, timeout range and retry waits (`src/gemini.ts`), and its 20,000-character text and 40-character name limits (`src/parse.ts`). `tsx` runs the source directly, so these need no build step either, but some tests pin them.
 
 ### Code sets: RULES.md and codesets.json
 
@@ -231,7 +413,7 @@ Today that is the repo-root `RULES.md`. It supplies all four sets and has more c
 
 Every number below is a hand-set starting guess. None has been fitted to real sale outcomes. The examples and the sample check show that the engine applies the numbers as written, not that the numbers are right.
 
-- All of `config/scoring.json`: title, drivable and hidden-risk rows, `severe_code_modifier`, the row confidences (title.unknown 0.3, drivable.unknown 0.4).
+- All of `config/scoring.json`: title, drivable and hidden-risk rows, `severe_code_modifier`, `severe_symptom_systems` (transmission, engine), the row confidences (title.unknown 0.3, drivable.unknown 0.4).
 - All of `config/weights.json`: the four weights, `temperature` 0.5, `clear_threshold` 0.70.
 - The market-fit fallback: the three rules (6 years, 10 years, 100,000 and 150,000 miles), their scores and confidence 0.4.
 - The code lists in `codesets.json` and in RULES.md (RULES.md marks SRS_DEPLOYMENT and TRANSMISSION as PLACEHOLDER), and the `severe_when` combinations.
@@ -306,8 +488,10 @@ What it does not implement yet:
 
 ## Known limits
 
-- **The live API path has never run against the real API.** The strict custom tool `report_market_fit` with `tool_choice: auto`, together with the `web_search_20260209` server tool on `claude-sonnet-5-5`, is tested only with a fake client. The spec acceptance line "with a key, `market examples/02_*.json` prints signals with source URLs" is unverified.
+- **The Anthropic market-fit path has never run against the real API.** The strict custom tool `report_market_fit` with `tool_choice: auto`, together with the `web_search_20260209` server tool on `claude-sonnet-5-5`, is tested only with a fake client. The spec acceptance line "with a key, `market examples/02_*.json` prints signals with source URLs" is unverified.
 - **A stalled API endpoint is slow to give up.** Each request has a 5-minute timeout (`MARKET_TIMEOUT_MS`) and one SDK retry, so one vehicle can wait about 10 minutes before the fallback. Nothing is printed while it waits. `eval` runs six examples in turn. Use `--offline` or a smaller `MARKET_TIMEOUT_MS` when that matters.
+- **The parser depends on a busy model.** On 2026-11-07, besides the nine extractions it answered (2.9 s to 93.5 s), `gemini-3.8-flash` returned 503 "This model is currently experiencing high demand" at least five times and 504 DEADLINE_EXCEEDED twice, each after the full 180 s deadline. Expect an occasional wait of minutes, and an exit 1 that asks you to try again later or to set `PARSER_MODEL`.
+- **The parser's market call has not returned a live answer, most likely because the key is on the free tier.** Every live market request on 2026-11-07 got 429 RESOURCE_EXHAUSTED "You exceeded your current quota, please check your plan and billing details", with no quota id and no retry delay, while extraction calls with the same key passed. Later that day an extraction 429 named the quota: `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20, retry delay 24,141 s (about 6.7 hours). So the key's project is on the free tier, with 20 `generateContent` requests per day for `gemini-3.8-flash`, and that is the likely reason the Google Search grounded call is refused. A key on a paid plan has not been tried. Until one is, the Google Search tool with low thinking on `gemini-3.8-flash`, and the real grounding metadata shape (coded from the SDK 3.0.0 type definitions), are tested only with a fake client. A failed market call leaves `market_fit` out (use `--no-market` to save the request), and the engine then uses the fallback table.
 - **Input checks are shape checks.** Unknown or misspelled keys (for example `runs_drive`) are an error, and absent keys become `"unknown"`. A record that is mostly missing still gets a decision. `location_state` only has to be two letters, so `"ZZ"` is accepted. Missing title and run status are marked "(missing)" in the factors; a missing flag shows only as "unknown".
 - **Answers depend on the year.** Without `--as-of`, vehicle age uses the current year, so fallback rows (and the answers) for the same record can change on 1 January.
 - Input, sample and config files may start with a UTF-8 byte-order mark (files saved by Windows editors).

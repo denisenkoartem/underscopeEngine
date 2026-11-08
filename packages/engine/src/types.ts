@@ -23,8 +23,45 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const CODE_STATUSES = ["confirmed", "pending", "history"] as const;
 export type CodeStatus = (typeof CODE_STATUSES)[number];
 
-/** Where a category score came from. */
-export type ScoreSource = "input" | "web" | "cache" | "fallback";
+/** Vehicle systems a reported symptom (a complaint in the user's own words) can belong to. */
+export const SYMPTOM_SYSTEMS = [
+  "transmission",
+  "engine",
+  "brakes",
+  "steering_suspension",
+  "electrical",
+  "body",
+  "interior",
+  "other",
+] as const;
+export type SymptomSystem = (typeof SYMPTOM_SYSTEMS)[number];
+
+/** A disclosed mechanical/electrical complaint, e.g. {system: "transmission", text: "transmission is generating noise"}. */
+export interface ReportedSymptom {
+  system: SymptomSystem;
+  /** The user's own words. */
+  text: string;
+}
+
+/**
+ * A market-fit judgment supplied with the input record (written by the free-text parser).
+ * Used as is when `insufficient` is false: no API call, no cache.
+ */
+export interface ProvidedMarketFit {
+  acv: number;
+  copart: number;
+  confidence: number;
+  /** As given; a signal whose url is "" had no URL and is dropped by the market-fit scorer. */
+  signals: MarketSignal[];
+  insufficient: boolean;
+  /** Who produced it, e.g. "gemini-3.8-flash + Google Search". */
+  provider: string;
+  /** ISO 8601 date or date-time. */
+  generated_at: string;
+}
+
+/** Where a category score came from ("provided" = the input record's own market_fit block). */
+export type ScoreSource = "input" | "web" | "cache" | "fallback" | "provided";
 
 /** What every scorer returns. */
 export interface ScoreResult {

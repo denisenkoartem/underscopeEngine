@@ -1,5 +1,7 @@
-// Market fit: one Anthropic API call with web search per vehicle profile (cached),
-// or the fallback table in scoring.json when offline / no key / call failed / insufficient.
+// Market fit: the input record's own market_fit block when it has one that is not
+// "insufficient" (written by the free-text parser; source "provided", no API call, no cache, also
+// with --offline); else one Anthropic API call with web search per vehicle profile (cached), or
+// the fallback table in scoring.json when offline / no key / call failed / insufficient.
 //
 // The fallback half of this file (evaluateRule, marketFitFallback) is final.
 //
@@ -13,8 +15,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { readMarketCache, resolveCacheDir, writeMarketCache, type MarketAnalysis } from "./cache.js";
 import { ConfigError, PACKAGE_ROOT, type EngineConfig } from "./config.js";
-import type { NormalizedRecord } from "./input.js";
-import type { MarketFitResult, MarketSignal, MarketUsage, RunStatus } from "./types.js";
+import { MAX_MARKET_SIGNALS, isHttpUrl, type NormalizedRecord } from "./input.js";
+import type { MarketFitResult, MarketSignal, MarketUsage, ProvidedMarketFit, RunStatus } from "./types.js";
 
 /** The one method of the Anthropic client this module uses; tests inject a fake. */
 export interface MessagesClient {
@@ -172,7 +174,7 @@ const REPORT_TOOL = "report_market_fit";
  * falls back instead of continuing. Per vehicle that is at most MAX_ATTEMPTS x MAX_SEARCHES.
  */
 const MAX_SEARCHES = 5;
-const MAX_SIGNALS = 5;
+const MAX_SIGNALS = MAX_MARKET_SIGNALS;
 /** pause_turn resumes allowed per attempt (the server pauses long web-search turns). */
 const MAX_CONTINUATIONS = 3;
 /** One call plus one retry when the tool call is missing or invalid. */
@@ -279,15 +281,6 @@ const ReportSchema = z.object({
 });
 type Report = z.infer<typeof ReportSchema>;
 
-function isHttpUrl(s: string): boolean {
-  try {
-    const u = new URL(s);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
 /** Keep signals with a claim and an http(s) URL, at most MAX_SIGNALS. */
 function cleanSignals(raw: Report["signals"], log: (line: string) => void): MarketSignal[] {
   const kept = raw
@@ -302,14 +295,21 @@ function cleanSignals(raw: Report["signals"], log: (line: string) => void): Mark
 
 const signed = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 
+const leanText = (acv: number, copart: number) => (acv > copart ? "favors ACV" : copart > acv ? "favors Copart" : "is neutral");
+
+/** "2 cited signal(s): example.com, data.example.org". Domains only: claim text (and any price in it) stays out. */
+function signalsFactor(signals: MarketSignal[]): string {
+  if (signals.length === 0) return "No cited signals with a URL";
+  const domains = [...new Set(signals.map((s) => new URL(s.url).hostname.replace(/^www\./, "")))];
+  return `${signals.length} cited signal(s): ${domains.join(", ")}`;
+}
+
 /** Result for a valid, sufficient analysis. Factors are built here from the judgments only. */
 function webResult(a: MarketAnalysis, source: "web" | "cache", usage?: MarketUsage, cachedAt?: Date): MarketFitResult {
-  const lean = a.acv > a.copart ? "favors ACV" : a.copart > a.acv ? "favors Copart" : "is neutral";
-  const domains = [...new Set(a.signals.map((s) => new URL(s.url).hostname.replace(/^www\./, "")))];
   const factors = [
-    `Web market analysis ${lean} (ACV ${signed(a.acv)}, Copart ${signed(a.copart)}, ` +
+    `Web market analysis ${leanText(a.acv, a.copart)} (ACV ${signed(a.acv)}, Copart ${signed(a.copart)}, ` +
       `confidence ${a.confidence.toFixed(2)}; ${a.model})`,
-    a.signals.length ? `${a.signals.length} cited signal(s): ${domains.join(", ")}` : "No cited signals with a URL",
+    signalsFactor(a.signals),
   ];
   if (cachedAt) factors.push(`Cached web analysis from ${cachedAt.toISOString().slice(0, 10)} (7-day TTL)`);
   return {
@@ -321,6 +321,35 @@ function webResult(a: MarketAnalysis, source: "web" | "cache", usage?: MarketUsa
     source,
     signals: a.signals,
     ...(usage ? { usage } : {}),
+  };
+}
+
+/**
+ * Result for the input record's own market_fit block (one that is not insufficient): its acv,
+ * copart and confidence as given, source "provided". No API call and no cache. Factors are built
+ * here from the scores, the provider, the date and the cited domains (never the claim text);
+ * signals are copied, minus any without an http(s) URL, at most MAX_SIGNALS.
+ */
+export function providedMarketFit(p: ProvidedMarketFit, log: (line: string) => void = () => {}): MarketFitResult {
+  const withUrl = p.signals
+    .map((s) => ({ claim: s.claim.trim(), url: s.url.trim() }))
+    .filter((s) => s.claim !== "" && isHttpUrl(s.url));
+  if (withUrl.length < p.signals.length) {
+    log(`market_fit: dropped ${p.signals.length - withUrl.length} provided signal(s) without a claim or an http(s) URL`);
+  }
+  const signals = withUrl.slice(0, MAX_SIGNALS);
+  return {
+    acv: p.acv,
+    copart: p.copart,
+    confidence: p.confidence,
+    factors: [
+      `Provided market analysis ${leanText(p.acv, p.copart)} (ACV ${signed(p.acv)}, Copart ${signed(p.copart)}, ` +
+        `confidence ${p.confidence.toFixed(2)}; ${p.provider}, generated ${p.generated_at.slice(0, 10)})`,
+      signalsFactor(signals),
+    ],
+    excluded: [],
+    source: "provided",
+    signals,
   };
 }
 
@@ -456,17 +485,35 @@ function recordUsage(ctx: CallContext, res: Anthropic.Message, label: string): n
 }
 
 /**
- * Market-fit score for a record. Order: offline -> fallback; no ANTHROPIC_API_KEY (empty counts
- * as missing) -> fallback without touching a client; fresh disk cache -> "cache"; else one API
- * call (retried once on a missing/invalid tool call) -> "web", cached for 7 days. API errors,
- * refusals, failed searches, invalid output twice and "insufficient" all fall back (with one
- * "market_fit: falling back" line on the log). A fallback that followed real API calls carries
- * their `usage` so run costs stay complete.
+ * Market-fit score for a record. Order: the record's own market_fit block when it is not
+ * insufficient -> "provided" (no API call, no cache, also when offline); offline -> fallback; no
+ * ANTHROPIC_API_KEY (empty counts as missing) -> fallback without touching a client; fresh disk
+ * cache -> "cache"; else one API call (retried once on a missing/invalid tool call) -> "web",
+ * cached for 7 days. API errors, refusals, failed searches, invalid output twice and
+ * "insufficient" all fall back (with one "market_fit: falling back" line on the log). A fallback
+ * that followed real API calls carries their `usage` so run costs stay complete. A provided block
+ * marked insufficient is not used: the normal path runs and a last factor says so.
  */
 export async function scoreMarketFit(
   record: NormalizedRecord,
   config: EngineConfig,
   opts: MarketFitOptions = {},
+): Promise<MarketFitResult> {
+  const provided = record.provided_market_fit;
+  if (provided && !provided.insufficient) {
+    return providedMarketFit(provided, opts.log ?? ((line: string) => void process.stderr.write(`${line}\n`)));
+  }
+  const result = await scoreWebOrFallback(record, config, opts);
+  if (!provided) return result;
+  const note = `Provided market fit (${provided.provider}, generated ${provided.generated_at.slice(0, 10)}) is marked insufficient: not used`;
+  return { ...result, factors: [...result.factors, note] };
+}
+
+/** scoreMarketFit without the provided block: offline / no key -> fallback, else cache, else the API. */
+async function scoreWebOrFallback(
+  record: NormalizedRecord,
+  config: EngineConfig,
+  opts: MarketFitOptions,
 ): Promise<MarketFitResult> {
   const asOfYear = opts.asOfYear ?? new Date().getFullYear();
   const fallback = (reason: string, usage?: MarketUsage): MarketFitResult => ({

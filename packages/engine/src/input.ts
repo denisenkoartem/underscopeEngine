@@ -6,7 +6,12 @@
 //
 // Every object is strict: an unknown or misspelled key (e.g. "runs_drive", "flag") is an
 // InputError instead of being dropped silently and then scored as "unknown". Absent keys
-// are still fine and become "unknown" / null.
+// are still fine and become "unknown" / null, and so is an explicit null (the free-text
+// parser writes every field, with null where the text says nothing).
+//
+// Three optional keys come from the free-text parser: reported_symptoms (disclosed complaints in
+// the user's words), market_fit (a market-fit judgment used instead of the Anthropic call when it
+// is not "insufficient") and parser (its metadata: any object, ignored by the engine).
 
 import { z } from "zod";
 import {
@@ -15,14 +20,20 @@ import {
   FLAG_VALUES,
   OPTIONS,
   RUN_STATUSES,
+  SYMPTOM_SYSTEMS,
   TITLE_BRANDS,
   type CodeStatus,
   type FlagName,
   type FlagValue,
   type Option,
+  type ProvidedMarketFit,
+  type ReportedSymptom,
   type RunStatus,
   type TitleBrand,
 } from "./types.js";
+
+/** An optional key whose value may also be null: both mean "not stated" and normalize to unknown / null. */
+const opt = <T extends z.ZodType>(schema: T) => schema.nullable().optional();
 
 const StateCode = z
   .string()
@@ -31,51 +42,122 @@ const StateCode = z
 
 const Flag = z.enum(FLAG_VALUES);
 
+/** The shape of a diagnostic trouble code, e.g. P0301 (case-insensitive; normalized to upper case). */
+export const OBD_CODE_PATTERN = /^[PBCU][0-9A-F]{4}$/i;
+
+/** True for an absolute http: or https: URL. */
+export function isHttpUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** One reported symptom: the system it belongs to and the user's own words. */
+export const ReportedSymptomSchema = z.strictObject({
+  system: z.enum(SYMPTOM_SYSTEMS),
+  text: z.string().trim().min(1, "expected the user's words (a non-empty string)"),
+});
+
+/** Most cited signals a market-fit result carries (also the cap on the API path). */
+export const MAX_MARKET_SIGNALS = 5;
+
+/**
+ * A cited market signal in an input market_fit block. A url of "", null or no url key means the
+ * signal has no URL: it is accepted and normalized to "", and the market-fit scorer drops it.
+ * Any other url must be an absolute http(s) URL.
+ */
+export const MarketSignalInputSchema = z.strictObject({
+  claim: z.string().trim().min(1, "expected a non-empty claim"),
+  url: z
+    .string()
+    .trim()
+    .refine((u) => u === "" || isHttpUrl(u), "expected an http(s) URL")
+    .nullable()
+    .optional()
+    .transform((u) => u ?? ""),
+});
+
+const IsoDate = z.iso.date();
+const IsoDateTime = z.iso.datetime({ offset: true });
+
+/**
+ * The market_fit block of an input record (written by the free-text parser). Every key is
+ * required and out-of-range numbers are an InputError, never clamped. Scores are judgments in
+ * [-1, 1]; prices may appear only inside a signal's claim text and never enter the Decision.
+ */
+export const MarketFitBlockSchema = z.strictObject({
+  acv: z.number().min(-1).max(1),
+  copart: z.number().min(-1).max(1),
+  confidence: z.number().min(0).max(1),
+  signals: z.array(MarketSignalInputSchema).max(MAX_MARKET_SIGNALS),
+  insufficient: z.boolean(),
+  provider: z.string().trim().min(1).max(200),
+  generated_at: z
+    .string()
+    .trim()
+    .refine(
+      (s) => IsoDateTime.safeParse(s).success || IsoDate.safeParse(s).success,
+      "expected an ISO 8601 date or date-time such as 2026-11-07T19:10:51Z",
+    ),
+});
+/** A validated market_fit block (signal urls normalized to "" when absent). */
+export type MarketFitBlock = z.output<typeof MarketFitBlockSchema>;
+/** What may be written as a market_fit block. */
+export type MarketFitBlockInput = z.input<typeof MarketFitBlockSchema>;
+
 export const ConditionRecordSchema = z.strictObject({
-  vin: z.string().min(1).optional(),
-  decoded: z
-    .strictObject({
-      year: z.number().int().min(1900).max(2100).optional(),
-      make: z.string().min(1).optional(),
-      model: z.string().min(1).optional(),
-      trim: z.string().min(1).optional(),
-    })
-    .optional(),
-  odometer: z.number().int().min(0).nullable().optional(),
-  location_state: StateCode.optional(),
-  title: z
-    .strictObject({
-      brand: z.enum(TITLE_BRANDS).optional(),
-      state: StateCode.optional(),
-    })
-    .optional(),
-  runs_drives: z.enum(RUN_STATUSES).optional(),
-  flags: z
-    .strictObject({
-      frame: Flag.optional(),
-      airbag: Flag.optional(),
-      flood: Flag.optional(),
-      module_no_comm: Flag.optional(),
-      monitors_incomplete: Flag.optional(),
-    })
-    .optional(),
-  codes: z
-    .array(
+  vin: opt(z.string().min(1)),
+  decoded: opt(
+    z.strictObject({
+      year: opt(z.number().int().min(1900).max(2100)),
+      make: opt(z.string().min(1)),
+      model: opt(z.string().min(1)),
+      trim: opt(z.string().min(1)),
+    }),
+  ),
+  odometer: opt(z.number().int().min(0)),
+  location_state: opt(StateCode),
+  title: opt(
+    z.strictObject({
+      brand: opt(z.enum(TITLE_BRANDS)),
+      state: opt(StateCode),
+    }),
+  ),
+  runs_drives: opt(z.enum(RUN_STATUSES)),
+  flags: opt(
+    z.strictObject({
+      frame: opt(Flag),
+      airbag: opt(Flag),
+      flood: opt(Flag),
+      module_no_comm: opt(Flag),
+      monitors_incomplete: opt(Flag),
+    }),
+  ),
+  codes: opt(
+    z.array(
       z.strictObject({
         code: z
           .string()
           .trim()
-          .regex(/^[PBCUpbcu][0-9A-Fa-f]{4}$/, "expected an OBD-II code such as P0301")
+          .regex(OBD_CODE_PATTERN, "expected an OBD-II code such as P0301")
           .transform((c) => c.toUpperCase()),
         status: z.enum(CODE_STATUSES),
       }),
-    )
-    .optional(),
-  seller: z
-    .strictObject({
-      lanes_allowed: z.array(z.enum(OPTIONS)).optional(),
-    })
-    .optional(),
+    ),
+  ),
+  seller: opt(
+    z.strictObject({
+      lanes_allowed: opt(z.array(z.enum(OPTIONS))),
+    }),
+  ),
+  /** Disclosed complaints, e.g. [{system: "transmission", text: "transmission is generating noise"}]. */
+  reported_symptoms: opt(z.array(ReportedSymptomSchema)),
+  market_fit: opt(MarketFitBlockSchema),
+  /** Parser metadata (model, input text, evidence, usage...): any object, ignored by the engine. */
+  parser: opt(z.record(z.string(), z.unknown())),
 });
 
 export type ConditionRecordInput = z.input<typeof ConditionRecordSchema>;
@@ -94,6 +176,10 @@ export interface NormalizedRecord {
   codes_provided: boolean;
   /** Defaults to both options when the seller gave no constraint. */
   lanes_allowed: Option[];
+  /** Disclosed complaints in the user's words; [] when absent (then "reported_symptoms" is in `missing`). */
+  reported_symptoms: ReportedSymptom[];
+  /** The input's market_fit block, or null when it had none. Not a vehicle field: never in `missing`. */
+  provided_market_fit: ProvidedMarketFit | null;
   /** Dotted paths of fields that were absent and defaulted to unknown/null. */
   missing: string[];
 }
@@ -123,8 +209,8 @@ export function normalizeRecord(raw: unknown): NormalizedRecord {
     }
     return v;
   };
-  const orUnknown = <T extends string>(v: T | undefined, path: string): T | "unknown" => {
-    if (v === undefined) {
+  const orUnknown = <T extends string>(v: T | undefined | null, path: string): T | "unknown" => {
+    if (v === undefined || v === null) {
       missing.push(path);
       return "unknown";
     }
@@ -134,8 +220,12 @@ export function normalizeRecord(raw: unknown): NormalizedRecord {
   const flags = {} as Record<FlagName, FlagValue>;
   for (const f of FLAG_NAMES) flags[f] = orUnknown(r.flags?.[f], `flags.${f}`);
 
-  if (r.codes === undefined) missing.push("codes");
+  const codes = r.codes ?? null;
+  if (codes === null) missing.push("codes");
+  const symptoms = r.reported_symptoms ?? null;
+  if (symptoms === null) missing.push("reported_symptoms");
   const lanes = r.seller?.lanes_allowed;
+  const market = r.market_fit ?? null;
 
   return {
     vin: orNull(r.vin, "vin"),
@@ -153,9 +243,12 @@ export function normalizeRecord(raw: unknown): NormalizedRecord {
     },
     runs_drives: orUnknown(r.runs_drives, "runs_drives"),
     flags,
-    codes: r.codes ?? [],
-    codes_provided: r.codes !== undefined,
+    codes: codes ?? [],
+    codes_provided: codes !== null,
     lanes_allowed: lanes ? OPTIONS.filter((o) => lanes.includes(o)) : [...OPTIONS],
+    reported_symptoms: (symptoms ?? []).map((s) => ({ system: s.system, text: s.text })),
+    provided_market_fit:
+      market === null ? null : { ...market, signals: market.signals.map((sig) => ({ claim: sig.claim, url: sig.url })) },
     missing,
   };
 }

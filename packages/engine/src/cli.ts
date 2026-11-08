@@ -1,10 +1,11 @@
 // CLI: pnpm engine <decide|explain|market|eval> [file.json] [--offline] [--as-of <year>]
 //      pnpm engine samples <sample_vehicles.json> [--use-shipped-config]
+//      pnpm engine parse "<text>" | --file <notes.txt> [--out <file.json>] [--no-market] [--decide [--as-of <year>]]
 //
 // pnpm passes everything after the script name through to this script (including
 // --offline), and runs it with cwd = packages/engine; INIT_CWD is where the user ran pnpm.
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { decideWithMarket } from "./combine.js";
@@ -13,6 +14,8 @@ import { renderExplainTable } from "./explain.js";
 import { compareDecision, parseExpected } from "./expected.js";
 import { InputError, normalizeRecord, type NormalizedRecord } from "./input.js";
 import { scoreMarketFit, type MarketFitOptions } from "./marketFit.js";
+import type { GeminiClient } from "./gemini.js";
+import { ParseError, parseFreeText, toEngineInput, type ParseResult } from "./parse.js";
 import { buildSampleConfig, formatSampleResults, readSampleFile, runSamples } from "./samples.js";
 import type { Decision, MarketFitResult } from "./types.js";
 
@@ -27,6 +30,8 @@ const USAGE = `Usage: pnpm engine <command> [options]
   samples <file.json>   run a sample_vehicles.json file offline under its own config_used
                         (config/ plus the file's overrides, in memory) and compare each
                         vehicle with its expected_offline; exit 1 on any FAIL
+  parse "<text>"        turn free-text notes into an input record JSON with Gemini (needs
+                        GOOGLE_API_KEY); stdout is that JSON only, logs go to stderr
 Options:
   --offline             never call the API; market fit uses the fallback table
   --as-of <year>        year used for vehicle age (default: the current year; eval uses
@@ -34,6 +39,11 @@ Options:
                         file's "generated" date and rejects --as-of)
   --use-shipped-config  samples only: use config/ as shipped instead of the file's
                         config_used and report the differences (informational, exit 0)
+  --file <notes.txt>    parse only: read the text from a file instead of the argument
+  --out <file.json>     parse only: also write the JSON to this file
+  --no-market           parse only: skip the Gemini market-fit call (Google Search)
+  --decide              parse only: then run the engine on the JSON (offline, with the parsed
+                        market_fit block) and print the Decision JSON after it
 A "*" in the file name is expanded (it must match exactly one file).`;
 
 class UsageError extends Error {}
@@ -45,15 +55,49 @@ export interface CliArgs {
   asOfYear?: number;
   /** samples only. */
   useShippedConfig: boolean;
+  /** parse only: read the text from this file. */
+  file?: string;
+  /** parse only: also write the JSON here. */
+  out?: string;
+  /** parse only: skip the market-fit call. */
+  noMarket: boolean;
+  /** parse only: run the engine on the parsed JSON afterwards. */
+  decide: boolean;
+}
+
+/** What tests inject into main(); the CLI itself passes nothing. */
+export interface CliDeps {
+  /** Gemini client for parse (tests pass a fake; otherwise built from the key). */
+  geminiClient?: GeminiClient;
+  /** Environment for parse; defaults to process.env (after .env loading). */
+  env?: NodeJS.ProcessEnv;
 }
 
 export function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { command: "", files: [], offline: false, useShippedConfig: false };
-  for (let i = 0; i < argv.length; i++) {
+  const args: CliArgs = {
+    command: "",
+    files: [],
+    offline: false,
+    useShippedConfig: false,
+    noMarket: false,
+    decide: false,
+  };
+  let i = 0;
+  /** Value of `--name value` or `--name=value`. */
+  const valueOf = (a: string, name: string): string => {
+    const v = a.includes("=") ? a.slice(name.length + 1) : argv[++i];
+    if (!v) throw new UsageError(`${name} needs a value`);
+    return v;
+  };
+  for (; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--") continue; // pnpm/npm separator, harmless
     if (a === "--offline") args.offline = true;
     else if (a === "--use-shipped-config") args.useShippedConfig = true;
+    else if (a === "--no-market") args.noMarket = true;
+    else if (a === "--decide") args.decide = true;
+    else if (a === "--file" || a.startsWith("--file=")) args.file = valueOf(a, "--file");
+    else if (a === "--out" || a.startsWith("--out=")) args.out = valueOf(a, "--out");
     else if (a === "--as-of" || a.startsWith("--as-of=")) {
       const v = a.includes("=") ? a.slice("--as-of=".length) : argv[++i];
       const year = Number(v);
@@ -107,8 +151,10 @@ export function loadDotEnv(
   paths: string[] = [join(PACKAGE_ROOT, ".env"), join(REPO_ROOT, ".env")],
   warn: (line: string) => void = (line) => console.error(line),
 ): void {
+  // GOOGLE_API_KEY / GEMINI_API_KEY are the free-text parser's keys (parse command).
+  const keys = ["ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"];
   const dropEmptyKey = () => {
-    if (process.env.ANTHROPIC_API_KEY === "") delete process.env.ANTHROPIC_API_KEY;
+    for (const k of keys) if (process.env[k] === "") delete process.env[k];
   };
   dropEmptyKey();
   for (const p of paths) {
@@ -222,7 +268,72 @@ function evalSamples(path: string, shipped: EngineConfig, useShipped: boolean): 
   return useShipped || passed === total;
 }
 
-export async function main(argv: string[]): Promise<number> {
+/** The text to parse: --file (looked up like the other file arguments) or the words given. */
+function parseText(args: CliArgs): string {
+  if (args.file !== undefined) {
+    if (args.files.length > 0) throw new UsageError("parse takes either the text or --file, not both");
+    const path = resolveOne(args.file);
+    try {
+      return readFileSync(path, "utf8");
+    } catch (e) {
+      throw new InputError(`Cannot read ${path}: ${(e as Error).message}`);
+    }
+  }
+  if (args.files.length === 0) throw new UsageError('parse needs the text, e.g. pnpm -s engine parse "transmission is generating noise", or --file <notes.txt>');
+  return args.files.join(" "); // unquoted words arrive as separate arguments
+}
+
+/** parse: print the input-record JSON (and write it with --out); with --decide, then the Decision. */
+async function runParse(args: CliArgs, config: EngineConfig, deps: CliDeps): Promise<number> {
+  const text = parseText(args);
+  /** Print the JSON on stdout and, with --out, write it to the file. */
+  const emit = (input: Record<string, unknown>): void => {
+    const json = JSON.stringify(input, null, 2);
+    if (args.out) {
+      const outPath = resolve(process.env.INIT_CWD ?? process.cwd(), args.out);
+      try {
+        writeFileSync(outPath, `${json}\n`);
+      } catch (e) {
+        throw new InputError(`Cannot write ${outPath}: ${(e as Error).message}`);
+      }
+      console.error(`parse: wrote ${outPath}`);
+    }
+    console.log(json);
+  };
+  let result: ParseResult;
+  try {
+    result = await parseFreeText(text, {
+      ...(deps.geminiClient ? { client: deps.geminiClient } : {}),
+      env: deps.env ?? process.env,
+      market: !args.noMarket,
+    });
+  } catch (e) {
+    // A 401/402/403/404 on the market call: the extraction succeeded (and was paid for), so the
+    // record is still printed (and written with --out) without market_fit; then exit 1.
+    if (e instanceof ParseError && e.partial) {
+      emit(toEngineInput(e.partial));
+      throw new ParseError(`${e.message} (the record above was printed without market_fit; --no-market skips the market call)`);
+    }
+    throw e;
+  }
+  const input = toEngineInput(result);
+  emit(input);
+  if (args.decide) {
+    let record: NormalizedRecord;
+    try {
+      record = normalizeRecord(input);
+    } catch (e) {
+      if (e instanceof InputError) throw new InputError(`parser output is not valid engine input: ${e.message}`);
+      throw e;
+    }
+    // Offline: the parsed market_fit block (when not insufficient) needs no API call; otherwise the fallback table.
+    const { decision } = await run(record, config, { offline: true, asOfYear: args.asOfYear ?? new Date().getFullYear() });
+    console.log(JSON.stringify(decision, null, 2));
+  }
+  return 0;
+}
+
+export async function main(argv: string[], deps: CliDeps = {}): Promise<number> {
   const args = parseArgs(argv);
   if (args.command === "help" || args.command === "") {
     (args.command ? console.log : console.error)(USAGE);
@@ -230,6 +341,20 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (args.useShippedConfig && args.command !== "samples") {
     throw new UsageError("--use-shipped-config only applies to the samples command");
+  }
+  if (args.command !== "parse") {
+    const parseOnly = [
+      args.file !== undefined && "--file",
+      args.out !== undefined && "--out",
+      args.noMarket && "--no-market",
+      args.decide && "--decide",
+    ].filter(Boolean);
+    if (parseOnly.length > 0) throw new UsageError(`${parseOnly.join(", ")} only applies to the parse command`);
+  } else {
+    if (args.offline) {
+      throw new UsageError("parse calls the Gemini API, so --offline does not apply (use --no-market to skip the market call)");
+    }
+    if (args.asOfYear !== undefined && !args.decide) throw new UsageError("--as-of only applies to parse together with --decide");
   }
   loadDotEnv();
   const config = loadConfig();
@@ -252,6 +377,8 @@ export async function main(argv: string[]): Promise<number> {
     case "eval":
       if (args.files.length > 0) throw new UsageError("eval takes no file arguments");
       return (await evalExamples(config, args.offline)) ? 0 : 1;
+    case "parse":
+      return runParse(args, config, deps);
     case "samples":
       if (args.files.length > 1) throw new UsageError(`samples takes one file, got ${args.files.length}`);
       if (args.asOfYear !== undefined) {
@@ -270,7 +397,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       process.exitCode = code;
     },
     (e: unknown) => {
-      const known = e instanceof InputError || e instanceof ConfigError || e instanceof UsageError;
+      const known = e instanceof InputError || e instanceof ConfigError || e instanceof UsageError || e instanceof ParseError;
       console.error(known ? `Error: ${(e as Error).message}` : e);
       if (e instanceof UsageError) console.error(`\n${USAGE}`);
       process.exitCode = 1;

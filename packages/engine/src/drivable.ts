@@ -1,10 +1,11 @@
 // Drivable scorer: look up runs_drives, then apply severe_code_modifier ONCE when any severe
-// cause holds (a severe_when code-set combination on confirmed codes, or frame/airbag "yes"),
-// and clamp each score to [-1, 1].
+// cause holds (a severe_when code-set combination on confirmed codes, frame/airbag "yes", or a
+// reported symptom whose system is in drivable.severe_symptom_systems), and clamp each score to
+// [-1, 1]. Reported symptoms are disclosed problems, so they never count as hidden risk.
 
 import type { EngineConfig } from "./config.js";
 import type { NormalizedRecord } from "./input.js";
-import type { ScoreResult } from "./types.js";
+import type { ReportedSymptom, ScoreResult, SymptomSystem } from "./types.js";
 
 const clamp = (x: number): number => Math.min(1, Math.max(-1, x));
 /** Drop float noise such as 0.30000000000000004 from added scores. */
@@ -17,9 +18,16 @@ function codesIn(record: NormalizedRecord, set: string[], confirmedOnly: boolean
     .map((c) => c.code);
 }
 
+/** Is this reported symptom's system one that makes the record severe? */
+function isSevereSymptom(system: SymptomSystem, config: EngineConfig): boolean {
+  return config.scoring.drivable.severe_symptom_systems.includes(system);
+}
+
 /**
  * Human-readable list of the severe causes that hold, e.g.
- * ["MISFIRE+CATALYST confirmed (P0301, P0420)", "frame: yes"]. Pending and history codes never count.
+ * ["MISFIRE+CATALYST confirmed (P0301, P0420)", "frame: yes", "reported symptom: transmission"].
+ * Pending and history codes never count. A severe symptom system is listed once, however many
+ * symptoms name it; the user's words go in their own factors (scoreDrivable).
  */
 export function severeCauses(record: NormalizedRecord, config: EngineConfig): string[] {
   const { sets, severe_when } = config.codesets;
@@ -30,7 +38,15 @@ export function severeCauses(record: NormalizedRecord, config: EngineConfig): st
   }
   if (record.flags.frame === "yes") causes.push("frame: yes");
   if (record.flags.airbag === "yes") causes.push("airbag: yes");
+  const systems = new Set(record.reported_symptoms.map((x) => x.system).filter((sys) => isSevereSymptom(sys, config)));
+  for (const sys of systems) causes.push(`reported symptom: ${sys}`);
   return causes;
+}
+
+/** `Reported symptom: transmission ("transmission is generating noise")`, plus a note when the system is not severe. */
+function symptomFactor(symptom: ReportedSymptom, config: EngineConfig): string {
+  const base = `Reported symptom: ${symptom.system} (${JSON.stringify(symptom.text)})`;
+  return isSevereSymptom(symptom.system, config) ? base : `${base}, not a severe system: no modifier`;
 }
 
 export function scoreDrivable(record: NormalizedRecord, config: EngineConfig): ScoreResult {
@@ -51,6 +67,7 @@ export function scoreDrivable(record: NormalizedRecord, config: EngineConfig): S
     const clamped = acv !== tidy(rawAcv) || copart !== tidy(rawCopart) ? ", clamped to [-1, 1]" : "";
     factors.push(`Severe: ${causes.join("; ")} -> modifier applied once${clamped}`);
   }
+  for (const symptom of record.reported_symptoms) factors.push(symptomFactor(symptom, config));
 
   // Codes from severe sets that did not count because they are not confirmed.
   const allSevereCodes = new Set(config.codesets.severe_when.flat().flatMap((n) => config.codesets.sets[n] ?? []));

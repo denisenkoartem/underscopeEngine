@@ -1,5 +1,5 @@
 {
-  "description": "Hand-set starting guesses (v0), not calibrated. Each category scores both options from -1 (strongly against) to +1 (strongly for). 'excluded' removes the option outright. 'confidence' defaults to 1.0 when a row does not set it.",
+  "description": "Hand-set starting guesses (v0), not calibrated. Each category scores both options from -1 (strongly against) to +1 (strongly for). 'excluded' removes the option outright. 'confidence' defaults to 1.0 when a row does not set it. drivable.severe_symptom_systems lists the reported_symptoms systems (from the free-text parser) that make a record severe, like a severe_when code set or frame/airbag 'yes'; severe_code_modifier is still applied once in total.",
   "title": {
     "clean":         {"acv": 1.0,  "copart": -0.3},
     "rebuilt":       {"acv": -0.5, "copart": 0.3},
@@ -12,7 +12,8 @@
     "engine_starts": {"acv": 0.0,  "copart": 0.3},
     "no":            {"acv": -0.8, "copart": 0.6},
     "unknown":       {"acv": -0.3, "copart": 0.2, "confidence": 0.4},
-    "severe_code_modifier": {"acv": -0.4, "copart": 0.1}
+    "severe_code_modifier": {"acv": -0.4, "copart": 0.1},
+    "severe_symptom_systems": ["transmission", "engine"]
   },
   "hidden_risk": {
     "counts": ["frame", "airbag", "flood", "module_no_comm", "monitors_incomplete"],
