@@ -1,0 +1,14 @@
+{
+  "decoded": { "year": 2019, "make": "Chevrolet", "model": "Silverado 1500", "trim": "LT" },
+  "odometer": 87412,
+  "location_state": "TX",
+  "title": { "brand": "salvage", "state": "TX" },
+  "runs_drives": "no",
+  "flags": {
+    "frame": "no",
+    "airbag": "no",
+    "flood": "no",
+    "module_no_comm": "no",
+    "monitors_incomplete": "no"
+  }
+}

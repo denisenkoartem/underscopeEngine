@@ -1,0 +1,18 @@
+{
+  "decoded": { "year": 2021, "make": "Ram", "model": "1500", "trim": "Big Horn" },
+  "odometer": 62000,
+  "location_state": "GA",
+  "title": { "brand": "clean", "state": "GA" },
+  "runs_drives": "run_and_drive",
+  "flags": {
+    "frame": "unknown",
+    "airbag": "no",
+    "flood": "no",
+    "module_no_comm": "no",
+    "monitors_incomplete": "no"
+  },
+  "codes": [
+    { "code": "P0301", "status": "confirmed" },
+    { "code": "P0420", "status": "confirmed" }
+  ]
+}

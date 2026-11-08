@@ -1,0 +1,623 @@
+{
+  "description": "Sample input records for the Underscope weighted engine (ACV vs Copart). All vehicles and VINs are invented; VIN check digits are valid so decoding does not error, but decoded details may not match a real vehicle. expected_offline is computed with the market-fit fallback (no web search) and the config below; with web search enabled, market_fit can change close calls.",
+  "generated": "2026-11-07",
+  "config_used": {
+    "weights": {
+      "version": 1,
+      "title": 0.3,
+      "hidden_risk": 0.25,
+      "market_fit": 0.2,
+      "drivable": 0.25,
+      "temperature": 0.5,
+      "clear_threshold": 0.7
+    },
+    "drivable.severe_code_modifier": {
+      "acv": -1.0,
+      "copart": 0.4
+    },
+    "note": "all other scoring tables as in the WEIGHTED.md prompt"
+  },
+  "vehicles": [
+    {
+      "id": "v01",
+      "description": "Late-model pickup, light cosmetic damage, nothing unknown",
+      "record": {
+        "vin": "1FTFW1E86NFA11201",
+        "decoded": {
+          "year": 2022,
+          "make": "Ford",
+          "model": "F-150",
+          "trim": "XLT"
+        },
+        "odometer": 38200,
+        "location_state": "TX",
+        "title": {
+          "brand": "clean",
+          "state": "TX"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.83,
+          "copart": 0.17
+        },
+        "confidence": "clear",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v02",
+      "description": "Runs, but misfire and catalyst faults confirmed; frame not checked",
+      "record": {
+        "vin": "3GCUYDED1MG215532",
+        "decoded": {
+          "year": 2021,
+          "make": "Chevrolet",
+          "model": "Silverado 1500",
+          "trim": "LT"
+        },
+        "odometer": 62100,
+        "location_state": "GA",
+        "title": {
+          "brand": "clean",
+          "state": "GA"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "unknown",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": [
+          {
+            "code": "P0300",
+            "status": "confirmed"
+          },
+          {
+            "code": "P0420",
+            "status": "confirmed"
+          },
+          {
+            "code": "C0035",
+            "status": "pending"
+          }
+        ]
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.62,
+          "copart": 0.38
+        },
+        "confidence": "close_call",
+        "verify_first": "frame"
+      }
+    },
+    {
+      "id": "v03",
+      "description": "Salvage title, front-end hit, does not run",
+      "record": {
+        "vin": "1C6SRFFT3KN601144",
+        "decoded": {
+          "year": 2019,
+          "make": "Ram",
+          "model": "1500",
+          "trim": "Big Horn"
+        },
+        "odometer": 88400,
+        "location_state": "FL",
+        "title": {
+          "brand": "salvage",
+          "state": "FL"
+        },
+        "runs_drives": "no",
+        "flags": {
+          "frame": "suspected",
+          "airbag": "yes",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": [
+          {
+            "code": "B0001",
+            "status": "confirmed"
+          },
+          {
+            "code": "U0100",
+            "status": "history"
+          }
+        ]
+      },
+      "expected_offline": {
+        "recommendation": "copart",
+        "probabilities": {
+          "acv": 0.0,
+          "copart": 1.0
+        },
+        "confidence": "clear",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v04",
+      "description": "Flood-branded nonrepairable title",
+      "record": {
+        "vin": "5TFDY5F11PX004521",
+        "decoded": {
+          "year": 2023,
+          "make": "Toyota",
+          "model": "Tundra",
+          "trim": "SR5"
+        },
+        "odometer": 21300,
+        "location_state": "TX",
+        "title": {
+          "brand": "nonrepairable",
+          "state": "TX"
+        },
+        "runs_drives": "no",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "yes",
+          "module_no_comm": "yes",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "copart",
+        "probabilities": {
+          "acv": 0.0,
+          "copart": 1.0
+        },
+        "confidence": "clear",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v05",
+      "description": "Old high-mileage truck, does not run, airbag and frame not checked",
+      "record": {
+        "vin": "1FTFW1EF9EKE77310",
+        "decoded": {
+          "year": 2014,
+          "make": "Ford",
+          "model": "F-150",
+          "trim": "XL"
+        },
+        "odometer": 168900,
+        "location_state": "OH",
+        "title": {
+          "brand": "clean",
+          "state": "OH"
+        },
+        "runs_drives": "no",
+        "flags": {
+          "frame": "unknown",
+          "airbag": "unknown",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "copart",
+        "probabilities": {
+          "acv": 0.37,
+          "copart": 0.63
+        },
+        "confidence": "close_call",
+        "verify_first": "frame"
+      }
+    },
+    {
+      "id": "v06",
+      "description": "Cargo van, runs, a module dropping off the bus and monitors incomplete",
+      "record": {
+        "vin": "1FTBR2CM7LKA43218",
+        "decoded": {
+          "year": 2020,
+          "make": "Ford",
+          "model": "Transit 250",
+          "trim": "Cargo"
+        },
+        "odometer": 74500,
+        "location_state": "NY",
+        "title": {
+          "brand": "clean",
+          "state": "NY"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "suspected",
+          "monitors_incomplete": "unknown"
+        },
+        "codes": [
+          {
+            "code": "U0100",
+            "status": "pending"
+          }
+        ]
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.7,
+          "copart": 0.3
+        },
+        "confidence": "clear",
+        "verify_first": "module_no_comm"
+      }
+    },
+    {
+      "id": "v07",
+      "description": "Rebuilt-title van that runs well, nothing unknown",
+      "record": {
+        "vin": "3C6TRVAG3NE118903",
+        "decoded": {
+          "year": 2022,
+          "make": "Ram",
+          "model": "ProMaster 1500",
+          "trim": "Cargo"
+        },
+        "odometer": 45100,
+        "location_state": "CA",
+        "title": {
+          "brand": "rebuilt",
+          "state": "CA"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.59,
+          "copart": 0.41
+        },
+        "confidence": "close_call",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v08",
+      "description": "Starts but does not drive; possible flood exposure",
+      "record": {
+        "vin": "3GTU9CED3JG274410",
+        "decoded": {
+          "year": 2018,
+          "make": "GMC",
+          "model": "Sierra 1500",
+          "trim": "SLE"
+        },
+        "odometer": 112300,
+        "location_state": "LA",
+        "title": {
+          "brand": "clean",
+          "state": "LA"
+        },
+        "runs_drives": "engine_starts",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "suspected",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.63,
+          "copart": 0.37
+        },
+        "confidence": "close_call",
+        "verify_first": "flood"
+      }
+    },
+    {
+      "id": "v09",
+      "description": "Heavy-duty pickup, runs, title status not provided",
+      "record": {
+        "vin": "1FT7W2BT7MEC10992",
+        "decoded": {
+          "year": 2021,
+          "make": "Ford",
+          "model": "F-250 Super Duty",
+          "trim": "Lariat"
+        },
+        "odometer": 55400,
+        "location_state": "TX",
+        "title": {
+          "brand": "unknown",
+          "state": "TX"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.83,
+          "copart": 0.17
+        },
+        "confidence": "close_call",
+        "verify_first": "confirm title brand"
+      }
+    },
+    {
+      "id": "v10",
+      "description": "High-mileage van with a confirmed transmission fault",
+      "record": {
+        "vin": "1GCWGAFP2H1119836",
+        "decoded": {
+          "year": 2017,
+          "make": "Chevrolet",
+          "model": "Express 2500",
+          "trim": "Cargo"
+        },
+        "odometer": 141200,
+        "location_state": "IL",
+        "title": {
+          "brand": "clean",
+          "state": "IL"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": [
+          {
+            "code": "P0700",
+            "status": "confirmed"
+          },
+          {
+            "code": "P0730",
+            "status": "confirmed"
+          }
+        ]
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.69,
+          "copart": 0.31
+        },
+        "confidence": "close_call",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v11",
+      "description": "Nearly new pickup with a deployed driver airbag; frame not checked",
+      "record": {
+        "vin": "1GCUDDED6PZ330157",
+        "decoded": {
+          "year": 2023,
+          "make": "Chevrolet",
+          "model": "Silverado 1500",
+          "trim": "RST"
+        },
+        "odometer": 15200,
+        "location_state": "AZ",
+        "title": {
+          "brand": "clean",
+          "state": "AZ"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "unknown",
+          "airbag": "yes",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": [
+          {
+            "code": "B0001",
+            "status": "confirmed"
+          }
+        ]
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.62,
+          "copart": 0.38
+        },
+        "confidence": "close_call",
+        "verify_first": "frame"
+      }
+    },
+    {
+      "id": "v12",
+      "description": "Ten-year-old midsize pickup, runs, nothing unknown",
+      "record": {
+        "vin": "3TMCZ5AN0GM021884",
+        "decoded": {
+          "year": 2016,
+          "make": "Toyota",
+          "model": "Tacoma",
+          "trim": "SR5"
+        },
+        "odometer": 132400,
+        "location_state": "CO",
+        "title": {
+          "brand": "clean",
+          "state": "CO"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "acv",
+        "probabilities": {
+          "acv": 0.82,
+          "copart": 0.18
+        },
+        "confidence": "clear",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v13",
+      "description": "Salvage-title heavy pickup that runs and drives",
+      "record": {
+        "vin": "3C6UR5DL9LG244679",
+        "decoded": {
+          "year": 2020,
+          "make": "Ram",
+          "model": "2500",
+          "trim": "Tradesman"
+        },
+        "odometer": 98700,
+        "location_state": "TX",
+        "title": {
+          "brand": "salvage",
+          "state": "TX"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "suspected",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "copart",
+        "probabilities": {
+          "acv": 0.0,
+          "copart": 1.0
+        },
+        "confidence": "clear",
+        "verify_first": null
+      }
+    },
+    {
+      "id": "v14",
+      "description": "Almost nothing known: title, run status and most checks missing",
+      "record": {
+        "vin": "1FTER4FH7KLA90233",
+        "decoded": {
+          "year": 2019,
+          "make": "Ford",
+          "model": "Ranger",
+          "trim": "XLT"
+        },
+        "odometer": 70300,
+        "location_state": "PA",
+        "title": {
+          "brand": "unknown",
+          "state": "PA"
+        },
+        "runs_drives": "unknown",
+        "flags": {
+          "frame": "unknown",
+          "airbag": "unknown",
+          "flood": "unknown",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": []
+      },
+      "expected_offline": {
+        "recommendation": "copart",
+        "probabilities": {
+          "acv": 0.29,
+          "copart": 0.71
+        },
+        "confidence": "insufficient",
+        "verify_first": "frame"
+      }
+    },
+    {
+      "id": "v15",
+      "description": "Lender repo with wholesale-only instructions limited to Copart",
+      "record": {
+        "vin": "1GCGTCEN5N1145502",
+        "decoded": {
+          "year": 2022,
+          "make": "Chevrolet",
+          "model": "Colorado",
+          "trim": "LT"
+        },
+        "odometer": 30100,
+        "location_state": "NC",
+        "title": {
+          "brand": "clean",
+          "state": "NC"
+        },
+        "runs_drives": "run_and_drive",
+        "flags": {
+          "frame": "no",
+          "airbag": "no",
+          "flood": "no",
+          "module_no_comm": "no",
+          "monitors_incomplete": "no"
+        },
+        "codes": [],
+        "seller": {
+          "lanes_allowed": [
+            "copart"
+          ]
+        }
+      },
+      "expected_offline": {
+        "recommendation": "copart",
+        "probabilities": {
+          "acv": 0.0,
+          "copart": 1.0
+        },
+        "confidence": "clear",
+        "verify_first": null
+      }
+    }
+  ]
+}

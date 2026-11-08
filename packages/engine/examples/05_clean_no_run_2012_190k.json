@@ -1,0 +1,17 @@
+{
+  "decoded": { "year": 2012, "make": "Chevrolet", "model": "Express 2500", "trim": "Cargo Van" },
+  "odometer": 190450,
+  "location_state": "OH",
+  "title": { "brand": "clean", "state": "OH" },
+  "runs_drives": "no",
+  "flags": {
+    "frame": "unknown",
+    "airbag": "no",
+    "flood": "no",
+    "module_no_comm": "unknown",
+    "monitors_incomplete": "no"
+  },
+  "codes": [
+    { "code": "P0562", "status": "confirmed" }
+  ]
+}

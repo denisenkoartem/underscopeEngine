@@ -2,3 +2,7 @@
 __pycache__/
 venv/
 test_vehicles/
+node_modules/
+.cache/
+dist/
+*:Zone.Identifier

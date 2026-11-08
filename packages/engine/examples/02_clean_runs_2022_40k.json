@@ -1,0 +1,15 @@
+{
+  "decoded": { "year": 2022, "make": "Ford", "model": "F-150", "trim": "XLT" },
+  "odometer": 40312,
+  "location_state": "TX",
+  "title": { "brand": "clean", "state": "TX" },
+  "runs_drives": "run_and_drive",
+  "flags": {
+    "frame": "no",
+    "airbag": "no",
+    "flood": "no",
+    "module_no_comm": "no",
+    "monitors_incomplete": "no"
+  },
+  "codes": []
+}

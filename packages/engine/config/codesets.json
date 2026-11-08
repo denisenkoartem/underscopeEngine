@@ -1,0 +1,6 @@
+{ "MISFIRE": ["P0300","P0301","P0302","P0303","P0304","P0305","P0306","P0307","P0308"],
+  "CATALYST": ["P0420","P0430"],
+  "TRANSMISSION": ["P0700","P0715","P0720","P0730","P0740","P0750"],
+  "SRS_DEPLOYMENT": ["B0001","B0002","B0003","B0010","B0011","B0012"],
+  "severe_when": ["MISFIRE+CATALYST", "TRANSMISSION", "SRS_DEPLOYMENT"],
+  "description": "starting lists; verify against a code table before relying on them. When RULES.md (packages/engine/rules/rules.md, or RULES.md at the repo root) has a `yaml codesets` block, its lists replace the same-named lists here; severe_when always comes from this file. A set is severe only on confirmed codes." }

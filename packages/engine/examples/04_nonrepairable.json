@@ -1,0 +1,14 @@
+{
+  "decoded": { "year": 2017, "make": "Ford", "model": "Transit 250", "trim": "Cargo Van" },
+  "odometer": 132560,
+  "location_state": "FL",
+  "title": { "brand": "nonrepairable", "state": "FL" },
+  "runs_drives": "no",
+  "flags": {
+    "frame": "no",
+    "airbag": "no",
+    "flood": "no",
+    "module_no_comm": "no",
+    "monitors_incomplete": "no"
+  }
+}

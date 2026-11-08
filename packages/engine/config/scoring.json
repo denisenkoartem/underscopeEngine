@@ -1,0 +1,34 @@
+{
+  "description": "Hand-set starting guesses (v0), not calibrated. Each category scores both options from -1 (strongly against) to +1 (strongly for). 'excluded' removes the option outright. 'confidence' defaults to 1.0 when a row does not set it.",
+  "title": {
+    "clean":         {"acv": 1.0,  "copart": -0.3},
+    "rebuilt":       {"acv": -0.5, "copart": 0.3},
+    "salvage":       {"acv": "excluded", "copart": 1.0},
+    "nonrepairable": {"acv": "excluded", "copart": 1.0},
+    "unknown":       {"acv": 0.0,  "copart": 0.0, "confidence": 0.3}
+  },
+  "drivable": {
+    "run_and_drive": {"acv": 0.8,  "copart": 0.0},
+    "engine_starts": {"acv": 0.0,  "copart": 0.3},
+    "no":            {"acv": -0.8, "copart": 0.6},
+    "unknown":       {"acv": -0.3, "copart": 0.2, "confidence": 0.4},
+    "severe_code_modifier": {"acv": -0.4, "copart": 0.1}
+  },
+  "hidden_risk": {
+    "counts": ["frame", "airbag", "flood", "module_no_comm", "monitors_incomplete"],
+    "count_as_risk": ["unknown", "suspected"],
+    "by_count": {
+      "0":  {"acv": 0.6,  "copart": 0.0},
+      "1":  {"acv": 0.0,  "copart": 0.2},
+      "2":  {"acv": -0.5, "copart": 0.4},
+      "3+": {"acv": -1.0, "copart": 0.6}
+    },
+    "yes_means": "disclosed problem, not hidden: does not count here; frame or airbag 'yes' applies drivable's severe_code_modifier instead"
+  },
+  "market_fit_fallback": {
+    "late_low_miles": {"rule": "age_years <= 6 and odometer < 100000", "acv": 0.8, "copart": 0.0},
+    "mid":            {"rule": "otherwise", "acv": 0.3, "copart": 0.2},
+    "old_or_high":    {"rule": "age_years > 10 or odometer > 150000", "acv": -0.5, "copart": 0.5},
+    "confidence": 0.4
+  }
+}

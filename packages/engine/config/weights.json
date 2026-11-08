@@ -1,0 +1,5 @@
+{ "version": 0,
+  "description": "hand-set starting guesses, not calibrated: title and hidden risk dominate; market fit from web analysis",
+  "weights": {"title": 0.35, "hidden_risk": 0.25, "market_fit": 0.25, "drivable": 0.15},
+  "temperature": 0.5,
+  "clear_threshold": 0.70 }
