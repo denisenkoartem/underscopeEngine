@@ -1,0 +1,131 @@
+{
+  "vin": "2HGFB2F50FH512345",
+  "vehicle": {
+    "year": "2015",
+    "make": "HONDA",
+    "model": "Civic",
+    "engine": null
+  },
+  "title_status": "clean",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "hood",
+      "grade": "fine"
+    },
+    {
+      "part": "grille",
+      "grade": "fine"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "windshield",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "repairable"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "replace"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "replace"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "fine"
+    },
+    {
+      "part": "roof",
+      "grade": "fine"
+    },
+    {
+      "part": "interior",
+      "grade": "fine"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "fine"
+    },
+    {
+      "part": "underbody",
+      "grade": "fine"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": false,
+    "frame_suspected": false,
+    "fluid_leak": false
+  },
+  "codes": [],
+  "values": {
+    "clean_wholesale": 9800,
+    "salvage_comps": [
+      3100,
+      3500,
+      3900
+    ]
+  },
+  "repair": {
+    "low": 1400,
+    "high": 3200
+  },
+  "notes": "Bought it at auction, it has a salvage title from Florida. Runs and drives fine, rear bumper is pushed in."
+}

@@ -1,0 +1,143 @@
+{
+  "vin": "1N6BF0KM3GN812345",
+  "vehicle": {
+    "year": "2016",
+    "make": "NISSAN",
+    "model": "NV",
+    "engine": null
+  },
+  "title_status": "flood",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "hood",
+      "grade": "fine"
+    },
+    {
+      "part": "grille",
+      "grade": "fine"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "windshield",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "repairable"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "fine"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "fine"
+    },
+    {
+      "part": "roof",
+      "grade": "fine"
+    },
+    {
+      "part": "interior",
+      "grade": "repairable"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "fine"
+    },
+    {
+      "part": "underbody",
+      "grade": "repairable"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": false,
+    "frame_suspected": false,
+    "fluid_leak": false
+  },
+  "codes": [
+    {
+      "code": "P0562",
+      "description": "System voltage low",
+      "system": "electrical",
+      "severity": "minor",
+      "cost_low": 100,
+      "cost_high": 400,
+      "source": "generic_table"
+    }
+  ],
+  "values": {
+    "clean_wholesale": 14500,
+    "salvage_comps": [
+      7600,
+      8100,
+      8800,
+      9300,
+      9700
+    ]
+  },
+  "repair": {
+    "low": 2600,
+    "high": 7300
+  },
+  "notes": "Water line up to the seats from the hurricane, musty smell. Engine starts but the dash lights flicker and it won't shift out of park."
+}

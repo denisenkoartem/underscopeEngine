@@ -716,7 +716,7 @@ def contracts_cmd(
         bool, typer.Option("--check", help="Only check the files match the code (exit 1 if not).")
     ] = False,
 ) -> None:
-    """Write the JSON Schemas for every file passed between stages to docs/contracts/."""
+    """Write the JSON Schemas for every file passed between stages to contracts/."""
     from underscope import contracts
 
     if check:
@@ -728,6 +728,47 @@ def contracts_cmd(
         return
     for path in contracts.write():
         typer.echo(f"Wrote {path}")
+
+
+@app.command("train-router")
+def train_router_cmd(
+    data: Annotated[
+        FsPath | None,
+        typer.Option(help="Training rows (.jsonl of {assessment, outcome}; see "
+                          "contracts/router-training-row.schema.json). Without it, made-up "
+                          "cars labelled by the dollar simulation."),
+    ] = None,
+    n: Annotated[int, typer.Option(help="Made-up cars to generate when --data is not given.")]
+    = 20000,
+    seed: Annotated[int, typer.Option(help="Seed for the made-up cars and the model.")] = 7,
+) -> None:
+    """Train the ACV-or-Copart model, save it and write the held-out report."""
+    from underscope import router
+
+    rows = router.read_rows(data) if data else router.simulated_rows(n, seed)
+    model = router.train(rows, seed)
+    router.save(model)
+    router.REPORT_PATH.write_text(router.report(model.meta))
+    h = model.meta["held_out"]
+    typer.echo(f"Trained on {model.meta['rows']:,} cars ({model.meta['trained_on']}); on "
+               f"{h['rows']:,} held out it picks the better marketplace {h['agreement']:.1%} of "
+               "the time.")
+    typer.echo(f"Wrote {router.MODEL_PATH}, {router.META_PATH} and {router.REPORT_PATH}.")
+
+
+@app.command("router-data")
+def router_data_cmd(
+    out: Annotated[FsPath, typer.Option(help="Where to write the .jsonl file.")],
+    n: Annotated[int, typer.Option(help="Made-up cars to generate.")] = 1000,
+    seed: Annotated[int, typer.Option(help="Seed.")] = 7,
+) -> None:
+    """Write made-up cars labelled by the dollar simulation, in the training-row format
+    (the template for a file of recorded outcomes)."""
+    from underscope import router
+
+    rows = router.simulated_rows(n, seed)
+    out.write_text("".join(r.model_dump_json() + "\n" for r in rows), encoding="utf-8")
+    typer.echo(f"Wrote {len(rows):,} simulated rows to {out}.")
 
 
 @app.command("demo")
@@ -859,7 +900,7 @@ def check_cmd(
     region: Annotated[str, typer.Option("--region", help="State, for total-loss rules.")] = "NY",
     api: Annotated[
         str, typer.Option("--api", help="Underscope app for registry title and values.")
-    ] = "https://underscope-eight.vercel.app",
+    ] = "http://localhost:3000",
     yes: Annotated[bool, typer.Option("--yes", help="Confirm the paid photo grading.")] = False,
     skip_confirm: Annotated[
         bool, typer.Option("--skip-confirm", help="Decide without a human checker.")

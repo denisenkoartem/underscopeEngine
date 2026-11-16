@@ -1,8 +1,9 @@
 """Machine-readable contracts: JSON Schemas for every file that crosses a stage boundary.
 
 Generated from the code (pydantic models and the detector's answer schema), written to
-docs/contracts/, and checked by a test so the published contracts can't drift from what the
-code accepts and produces. docs/CONTRACTS.md explains the guarantees behind each one.
+contracts/, and checked by a test so the published contracts can't drift from what the
+code accepts and produces. docs/engine/CONTRACTS.md (repo root) explains the guarantees behind
+each one.
 """
 
 from __future__ import annotations
@@ -14,11 +15,12 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from underscope.assessment import Assessment
 from underscope.data import ROOT
 from underscope.models import DamageFinding, Recommendation, VehicleRecord
 from underscope.review import ReviewRequest
 
-CONTRACTS_DIR = ROOT / "docs" / "contracts"
+CONTRACTS_DIR = ROOT / "contracts"
 DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
 
@@ -30,6 +32,24 @@ def _vehicle() -> dict[str, Any]:
     return _titled(VehicleRecord.model_json_schema(), "Vehicle",
                    "Input to evaluate and batch: one vehicle. Money in integer cents; photo "
                    "refs are paths relative to --photo-root.")  # fmt: skip
+
+
+def _assessment() -> dict[str, Any]:
+    return _titled(Assessment.model_json_schema(), "Assessment",
+                   "Body of POST /api/route: the reader's JSON for one seller description "
+                   "(mirror of reader/src/contract.ts) plus the app's repair estimate. Dollars, "
+                   "not cents. Every key is optional; an unstated fact is \"unknown\", null or "
+                   "an empty list, and keys the engine does not know are ignored.")  # fmt: skip
+
+
+def _router_row() -> dict[str, Any]:
+    from underscope.router import TrainingRow
+
+    return _titled(TrainingRow.model_json_schema(), "Router training row",
+                   "One line of the .jsonl file train-router --data reads: the reader's "
+                   "Assessment for a car and what it netted on each marketplace, in dollars "
+                   "after fees, transport and holding. source is \"recorded\" for a real car "
+                   "and \"simulation\" for a made-up one labelled by the engine.")  # fmt: skip
 
 
 def _labels() -> dict[str, Any]:
@@ -89,6 +109,8 @@ def _calibration() -> dict[str, Any]:
 
 
 SCHEMAS: dict[str, Callable[[], dict[str, Any]]] = {
+    "assessment": _assessment,
+    "router-training-row": _router_row,
     "vehicle": _vehicle,
     "labels": _labels,
     "review-request": _review,

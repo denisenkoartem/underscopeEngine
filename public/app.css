@@ -64,6 +64,8 @@ input, button { font-family: inherit; }
   border: 1px solid var(--line); border-radius: 4px; caret-color: var(--orange);
 }
 .vin::placeholder { color: #B9BCBE; }
+.text { display: block; width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--ink); font: 400 14px/1.45 var(--sans); resize: vertical; }
+.text::placeholder { color: #9A9EA1; }
 .vin:focus, .tags:focus-within, .money:focus-within, .text:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(211, 67, 25, .15); outline: none; }
 
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -258,9 +260,21 @@ footer { max-width: 880px; margin: 0 auto; padding: 8px 20px 28px; color: var(--
 .route .lines td { vertical-align: middle; }
 .lamp.on-acv { background: var(--green); box-shadow: 0 0 0 5px rgba(30, 123, 70, .14); }
 .lamp.on-copart { background: var(--orange); box-shadow: 0 0 0 5px rgba(211, 67, 25, .16); }
+.engine .rec { padding: 10px 0 4px; }
+.engine .rec h3 { font-size: 20px; }
+.engine .rec .badge { vertical-align: middle; margin-left: 6px; }
 .rec.hero h3 { font-size: 30px; }
 .rec.compact { padding: 6px 0 0; grid-template-columns: auto 1fr; }
 .rec.compact .lamp { width: 30px; height: 30px; font-size: 15px; }
 .rec.compact h3 { font-size: 17px; margin: 4px 0 2px; }
 .rec.compact .why { font-size: 14px; }
 .sec .ranges { padding-left: 0; padding-right: 0; }
+
+/* Description box: what we ask for, and what the parser read so far */
+.hint.ask { margin: 0 0 8px; }
+.hint.ask ul { margin: 4px 0 4px 18px; padding: 0; }
+.read { margin-top: 8px; font-size: 13px; color: var(--steel, #5f6368); }
+.read p { margin: 0 0 4px; }
+.read ul { margin: 0 0 0 18px; padding: 0; }
+.read .bad { color: var(--orange, #D34319); }
+.read .verified { color: var(--green); font-weight: 500; }

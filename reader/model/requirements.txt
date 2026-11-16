@@ -1,0 +1,11 @@
+# Training and local serving only (CLAUDE.md, "reader fine-tune"). Never add these to the root
+# requirements.txt, which api/route.py uses.
+# Install torch for your CUDA version first (https://pytorch.org); an RTX 50-series (Blackwell) GPU needs
+# a CUDA 12.8+ build, e.g. pip install torch --index-url https://download.pytorch.org/whl/cu128
+# Tested 2026-11-08: Python 3.14, torch 2.11.0+cu128, transformers 5.22.2, peft 0.21.2, accelerate 1.x.
+torch>=2.7
+transformers>=5.0
+peft>=0.17
+accelerate>=1.6
+safetensors
+huggingface_hub

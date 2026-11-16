@@ -17,7 +17,7 @@ labeled PLACEHOLDER and deliberately untuned. The ACV and Copart adapters are st
 calls the network. Fixtures and synthetic data are clearly labeled. Nothing here is real market data.
 
 This README explains the implementation: what each stage does, the formulas it uses, and why
-it is built that way. `PROGRESS.md` holds the review log and open decisions.
+it is built that way. `../docs/engine/PROGRESS.md` holds the review log and open decisions.
 
 **See it in two minutes:** `.venv/bin/underscope demo`, then open `demo/index.html`: three cars
 from photos to checker review to the recommended exit, no API key needed.
@@ -37,10 +37,10 @@ confirmed and fits the confidence calibration the detector then uses automatical
 
 | Doc | For |
 |---|---|
-| [`docs/PITCH.md`](docs/PITCH.md) | A ten-minute demo script, the ask, and likely questions |
-| [`docs/CODEMAP.md`](docs/CODEMAP.md) | How the code is organized and how each part serves the idea |
-| [`docs/CONTRACTS.md`](docs/CONTRACTS.md) | Every hand-off's format and guarantees; JSON Schemas in `docs/contracts/` |
-| [`docs/DATA_REQUIREMENTS.md`](docs/DATA_REQUIREMENTS.md) | What a data partnership must supply |
+| [`../docs/engine/PITCH.md`](../docs/engine/PITCH.md) | A ten-minute demo script, the ask, and likely questions |
+| [`../docs/engine/CODEMAP.md`](../docs/engine/CODEMAP.md) | How the code is organized and how each part serves the idea |
+| [`../docs/engine/CONTRACTS.md`](../docs/engine/CONTRACTS.md) | Every hand-off's format and guarantees; JSON Schemas in `contracts/` |
+| [`../docs/engine/DATA_REQUIREMENTS.md`](../docs/engine/DATA_REQUIREMENTS.md) | What a data partnership must supply |
 
 ## Setup
 
@@ -462,10 +462,10 @@ Reports: `reports/backtest.md`, `reports/sensitivity.md`, `reports/case_studies.
 
 ## Limitations and next steps
 
-- Every number is a placeholder. `docs/DATA_REQUIREMENTS.md` lists the fields, volumes and labels
+- Every number is a placeholder. `../docs/engine/DATA_REQUIREMENTS.md` lists the fields, volumes and labels
   needed from ACV and Copart (via a data partnership; the project never scrapes).
 - The Claude detector hasn't been scored on real labeled photos yet; see "Detector test data"
-  in `PROGRESS.md` for the dataset decision. Its boxes are approximate and unscored until
+  in `../docs/engine/PROGRESS.md` for the dataset decision. Its boxes are approximate and unscored until
   that run; `detect-eval` reports their overlap with labeled boxes.
 - Synthetic outcomes are a single realized draw per path, so per-vehicle results are noisy;
   the heavy band's 66% ceiling is mostly that noise.
@@ -478,7 +478,7 @@ Reports: `reports/backtest.md`, `reports/sensitivity.md`, `reports/case_studies.
 config/assumptions.yaml   PLACEHOLDER numbers, schema-checked
 data/fixtures/            three hand-built vehicles (dent, borderline, total loss)
 data/synthetic/           SYNTHETIC vehicles with same-model and misspecified truth
-docs/DATA_REQUIREMENTS.md data needed from ACV and Copart
+../docs/engine/DATA_REQUIREMENTS.md data needed from ACV and Copart
 reports/                  backtest, sensitivity, case studies (generated)
 src/underscope/           the package (see the module table above)
 tests/                    pytest, including invariants over a damage grid

@@ -6,6 +6,10 @@ node_modules/
 .cache/
 dist/
 *:Zone.Identifier
-.vercel/
 # Real VINs for the demo registry: never commit
 data/*.local.json
+# Reader fine-tune (CLAUDE.md): datasets, gold labels, eval results and trained adapters stay local
+*.local.jsonl
+reader/data/reader/
+reader/model/out/
+.venv/

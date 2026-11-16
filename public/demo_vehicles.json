@@ -1,60 +1,161 @@
 {
-  "note": "Sample vehicles for the demo. VINs have valid check digits but are not real cars; grades stand in for graded photos and values are illustrative, not market data.",
+  "note": "Sample vehicles for the demo. VINs have valid check digits but are not real cars; the notes are made up and the values are illustrative, not market data. title_status, grades, flags and values are what the parser must read from the notes (npm run test:decision checks it).",
   "vehicles": [
     {
       "id": "front-hit",
       "label": "2018 Ford F-150, front-end hit",
       "vin": "1FTEW1EP6JKD12345",
       "title_status": "clean",
-      "codes": [],
-      "grades": { "front_bumper": "replace", "hood": "replace", "grille": "replace", "left_headlight": "replace", "left_front_fender": "repairable", "underbody": "unknown", "engine_bay": "unknown" },
-      "flags": { "airbags_deployed": false, "frame_suspected": false, "fluid_leak": "unknown" },
-      "values": { "clean_wholesale": 24500, "salvage_comps": [9800, 10400, 11200, 11900, 12600, 13100] },
-      "expect": "fix"
+      "grades": {
+        "front_bumper": "replace",
+        "hood": "replace",
+        "grille": "replace",
+        "left_headlight": "replace",
+        "left_front_fender": "repairable",
+        "underbody": "unknown",
+        "engine_bay": "unknown"
+      },
+      "flags": {
+        "airbags_deployed": false,
+        "frame_suspected": false,
+        "fluid_leak": "unknown"
+      },
+      "values": {
+        "clean_wholesale": 24500,
+        "salvage_comps": [
+          9800,
+          10400,
+          11200,
+          11900,
+          12600,
+          13100
+        ]
+      },
+      "expect": "fix",
+      "notes": "Clean title, 84,000 miles, located in NY. Runs and drives. Front bumper, hood and grille need replacing. Driver headlight is smashed and the driver fender is dented. Underbody and engine bay not checked. Airbags did not deploy and there is no frame damage. Not sure about leaks. Everything else is fine. Clean wholesale value is $24,500. Similar damaged ones sold for 9800, 10400, 11200, 11900, 12600 and 13100."
     },
     {
       "id": "airbags",
       "label": "2018 Chevrolet Express, airbags deployed",
       "vin": "1GCWGAFP4J1123456",
       "title_status": "salvage",
-      "codes": ["B0001", "B0010", "U0151"],
-      "grades": { "front_bumper": "replace", "hood": "replace", "grille": "replace", "windshield": "replace", "left_headlight": "replace", "right_headlight": "replace", "left_front_fender": "replace", "right_front_fender": "repairable", "interior": "replace", "engine_bay": "repairable", "underbody": "unknown" },
-      "flags": { "airbags_deployed": true, "frame_suspected": true, "fluid_leak": "unknown" },
-      "values": { "clean_wholesale": 19000, "salvage_comps": [5200, 5900, 6300, 6800, 7400] },
-      "expect": "sell_as_is"
+      "grades": {
+        "front_bumper": "replace",
+        "hood": "replace",
+        "grille": "replace",
+        "windshield": "replace",
+        "left_headlight": "replace",
+        "right_headlight": "replace",
+        "left_front_fender": "replace",
+        "right_front_fender": "repairable",
+        "interior": "replace",
+        "engine_bay": "repairable",
+        "underbody": "unknown"
+      },
+      "flags": {
+        "airbags_deployed": true,
+        "frame_suspected": true,
+        "fluid_leak": "unknown"
+      },
+      "values": {
+        "clean_wholesale": 19000,
+        "salvage_comps": [
+          5200,
+          5900,
+          6300,
+          6800,
+          7400
+        ]
+      },
+      "expect": "sell_as_is",
+      "notes": "Salvage title, 112k miles, located in OH. Does not start. Front bumper, hood, grille and windshield need replacing. Both headlights are broken. Driver fender is crushed, passenger fender is dented. Airbags deployed and the interior needs replacing. Radiator is damaged. Frame is bent. Underbody not checked, not sure about leaks. Everything else is fine. Clean wholesale value $19,000. Comps: $5,200, $5,900, $6,300, $6,800, $7,400."
     },
     {
-      "id": "transmission",
-      "label": "2017 GMC Sierra 2500HD, transmission fault, rear damage",
+      "id": "rear-hit",
+      "label": "2017 GMC Sierra 2500HD, rear damage, title not confirmed",
       "vin": "1GT12UEY2HF123456",
       "title_status": "unknown",
-      "codes": ["P0700", "P0730", "P0868"],
-      "grades": { "rear_bumper": "replace", "tailgate_or_rear_doors": "repairable", "left_taillight": "replace", "underbody": "unknown" },
-      "flags": { "airbags_deployed": false, "frame_suspected": "unknown", "fluid_leak": "unknown" },
-      "values": { "clean_wholesale": 33500, "salvage_comps": [17500, 18900, 19800, 21000, 22400, 23600] },
-      "expect": "too_close"
+      "grades": {
+        "rear_bumper": "replace",
+        "tailgate_or_rear_doors": "repairable",
+        "left_taillight": "replace",
+        "underbody": "unknown"
+      },
+      "flags": {
+        "airbags_deployed": false,
+        "frame_suspected": "unknown",
+        "fluid_leak": "unknown"
+      },
+      "values": {
+        "clean_wholesale": 33500,
+        "salvage_comps": [
+          20500,
+          21900,
+          22800,
+          24000,
+          25400,
+          26600
+        ]
+      },
+      "expect": "too_close",
+      "notes": "Not sure about the title. 141k miles, located in PA. Starts. Rear bumper is destroyed, tailgate is dented and the driver taillight is broken. Underbody not checked. Airbags did not deploy. Frame not checked, not sure about leaks. Everything else is fine. Wholesale value $33,500. Similar damaged ones sold for 20500, 21900, 22800, 24000, 25400, 26600."
     },
     {
       "id": "flood",
       "label": "2016 Nissan NV, flood title, light damage",
       "vin": "1N6BF0KM3GN812345",
       "title_status": "flood",
-      "codes": ["P0562"],
-      "grades": { "interior": "repairable", "underbody": "repairable", "left_rear_door": "repairable" },
-      "flags": { "airbags_deployed": false, "frame_suspected": false, "fluid_leak": false },
-      "values": { "clean_wholesale": 14500, "salvage_comps": [7600, 8100, 8800, 9300, 9700] },
-      "expect": "sell_as_is"
+      "grades": {
+        "interior": "repairable",
+        "underbody": "repairable",
+        "left_rear_door": "repairable"
+      },
+      "flags": {
+        "airbags_deployed": false,
+        "frame_suspected": false,
+        "fluid_leak": false
+      },
+      "values": {
+        "clean_wholesale": 14500,
+        "salvage_comps": [
+          7600,
+          8100,
+          8800,
+          9300,
+          9700
+        ]
+      },
+      "expect": "sell_as_is",
+      "notes": "Flood title, 96k miles, located in FL. Runs and drives. Interior is stained, exhaust is rusted and the driver rear door has a dent. Airbags did not deploy, no frame damage, no leaks. Everything else is fine. Clean wholesale value $14,500. Comps: 7600, 8100, 8800, 9300, 9700."
     },
     {
       "id": "nonrepairable",
       "label": "2019 Ford Transit, non-repairable title",
       "vin": "1FTYR2CM1KKA12345",
       "title_status": "non_repairable",
-      "codes": ["C0035"],
-      "grades": { "left_front_door": "replace", "left_rear_door": "replace", "left_rear_quarter": "replace", "roof": "repairable" },
-      "flags": { "airbags_deployed": "unknown", "frame_suspected": true, "fluid_leak": false },
-      "values": { "clean_wholesale": 26000, "salvage_comps": [6400, 7100, 7800, 8200, 8900] },
-      "expect": "not_fixable"
+      "grades": {
+        "left_front_door": "replace",
+        "left_rear_door": "replace",
+        "left_rear_quarter": "replace",
+        "roof": "repairable"
+      },
+      "flags": {
+        "airbags_deployed": "unknown",
+        "frame_suspected": true,
+        "fluid_leak": false
+      },
+      "values": {
+        "clean_wholesale": 26000,
+        "salvage_comps": [
+          6400,
+          7100,
+          7800,
+          8200,
+          8900
+        ]
+      },
+      "expect": "not_fixable",
+      "notes": "Non-repairable title, 58k miles, located in NJ. Driver door, driver rear door and driver quarter panel need replacing. Roof is dented. Frame is bent. Not sure about the airbags. No leaks. Everything else is fine. Clean wholesale value $26,000. Comps: 6400, 7100, 7800, 8200, 8900."
     }
   ]
 }

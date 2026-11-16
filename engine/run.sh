@@ -33,7 +33,7 @@ run_with_limit() {
 n=0
 stalls=0
 while [ "$(date +%s)" -lt "$END" ]; do
-  if grep -q "^STATUS: DONE" PROGRESS.md 2>/dev/null; then
+  if grep -q "^STATUS: DONE" ../docs/engine/PROGRESS.md 2>/dev/null; then
     echo "All milestones done."; break
   fi
   n=$((n + 1))
@@ -43,7 +43,7 @@ while [ "$(date +%s)" -lt "$END" ]; do
   started=$(date +%s)
 
   echo "[$(date +%H:%M)] session $n starting"
-  run_with_limit "$left" claude -p "Read TASK.md and follow it." \
+  run_with_limit "$left" claude -p "Read ../docs/engine/TASK.md and follow it." \
     --permission-mode auto \
     --model sonnet \
     --output-format stream-json --verbose \
@@ -69,4 +69,4 @@ while [ "$(date +%s)" -lt "$END" ]; do
   sleep 5
 done
 
-echo "Done. Review with: git log --oneline main..$BRANCH   and read PROGRESS.md"
+echo "Done. Review with: git log --oneline main..$BRANCH   and read ../docs/engine/PROGRESS.md"

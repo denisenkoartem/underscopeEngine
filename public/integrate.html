@@ -38,8 +38,8 @@
   <section id="link">
     <h2>1. Link to it from any listing</h2>
     <p>Any page that knows a VIN can open a prefilled check. Add <code>run=1</code> to run it straight away.</p>
-    <pre>https://underscope-eight.vercel.app/?vin=1FTEW1EP6JKD12345&amp;codes=P0299,P0171&amp;title=clean&amp;run=1</pre>
-    <p style="margin-top:10px">Optional: <code>title</code> (clean, salvage, rebuilt, flood, non_repairable, lemon), <code>codes</code>, <code>clean</code> (wholesale value), <code>comps</code> (comma-separated sold prices). Registered vehicles fill in their verified title and values on their own. Every result has a <b>Copy link</b> button that produces one of these.</p>
+    <pre>http://localhost:3000/?vin=1FTEW1EP6JKD12345&amp;notes=Clean%20title%2C%2084k%20miles.%20Front%20bumper%20needs%20replacing.&amp;run=1</pre>
+    <p style="margin-top:10px"><code>notes</code> is the seller's description, URL-encoded: title, mileage, damage, clean wholesale value and sold prices of similar damaged vehicles. <code>run=1</code> starts the check when both are present.</p>
     <p><a class="btn btn-ghost btn-sm" href="/?sample=front-hit">Open a sample check</a></p>
   </section>
 
@@ -59,12 +59,11 @@
     <h2>3. Call the APIs</h2>
     <p>All four accept cross-origin requests, so a partner front end can call them directly.</p>
     <ul>
-      <li><code>GET /api/vehicle?vin=</code>: verified title and market values for registered vehicles.</li>
-      <li><code>POST /api/grade-photos</code> <code>{ vin, photos }</code>: 25 part grades, damage flags, missing angles.</li>
-      <li><code>POST /api/decode-codes</code> <code>{ vin, codes, title_status }</code>: fault codes with cost ranges.</li>
-      <li><code>POST /api/decide</code> <code>{ title_status, grades, flags, codes, values }</code>: repair estimate, both net ranges, P(fix wins), verdict.</li>
+      <li><code>GET /api/vehicle?vin=</code>: year, make, model and engine from the free NHTSA decode.</li>
+      <li><code>POST /api/parse-notes</code> <code>{ text }</code>: the description as JSON (title, mileage, values, 25 part grades, flags), with the words each value came from and what is still missing.</li>
+      <li><code>POST /api/decide</code> <code>{ title_status, grades, flags, values }</code>: repair estimate, both net ranges, P(fix wins), verdict.</li>
     </ul>
-    <pre>curl -X POST https://underscope-eight.vercel.app/api/decide \
+    <pre>curl -X POST http://localhost:3000/api/decide \
   -H "content-type: application/json" \
   -d '{"title_status":"clean",
        "grades":[{"part":"hood","grade":"replace"},{"part":"front_bumper","grade":"replace"}],
@@ -75,7 +74,7 @@
   <section>
     <h2>What a pilot would swap in</h2>
     <ul>
-      <li><b>VIPER payloads</b> in place of our photo grading, mapped onto the same 25-part grades.</li>
+      <li><b>VIPER payloads</b> in place of the typed description, mapped onto the same 25-part grades.</li>
       <li><b>ACV and Copart sold prices</b> in place of hand-entered comps and wholesale values.</li>
       <li><b>Shop invoices</b> in place of our rough repair-cost table.</li>
     </ul>

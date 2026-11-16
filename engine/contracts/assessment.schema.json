@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Body of POST /api/route: the reader's JSON for one seller description (mirror of reader/src/contract.ts) plus the app's repair estimate. Dollars, not cents. Every key is optional; an unstated fact is \"unknown\", null or an empty list, and keys the engine does not know are ignored.",
+  "properties": {
+    "additional": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Additional",
+      "type": "array"
+    },
+    "already_repaired": {
+      "default": "unknown",
+      "title": "Already Repaired",
+      "type": "string"
+    },
+    "catalytic_converter": {
+      "default": "unknown",
+      "title": "Catalytic Converter",
+      "type": "string"
+    },
+    "codes": {
+      "items": {},
+      "title": "Codes",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "could_add": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Could Add",
+      "type": "array"
+    },
+    "drivetrain": {
+      "default": "unknown",
+      "title": "Drivetrain",
+      "type": "string"
+    },
+    "engine_condition": {
+      "default": "unknown",
+      "title": "Engine Condition",
+      "type": "string"
+    },
+    "evidence": {
+      "additionalProperties": true,
+      "title": "Evidence",
+      "type": "object"
+    },
+    "flags": {
+      "additionalProperties": true,
+      "title": "Flags",
+      "type": "object"
+    },
+    "fuel_type": {
+      "default": "unknown",
+      "title": "Fuel Type",
+      "type": "string"
+    },
+    "grades": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Grades",
+      "type": "array"
+    },
+    "keys": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "default": "unknown",
+      "title": "Keys"
+    },
+    "lanes_allowed": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lanes Allowed"
+    },
+    "lien": {
+      "default": "unknown",
+      "title": "Lien",
+      "type": "string"
+    },
+    "mileage": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mileage"
+    },
+    "missing": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing",
+      "type": "array"
+    },
+    "odometer_status": {
+      "default": "unknown",
+      "title": "Odometer Status",
+      "type": "string"
+    },
+    "parts_missing": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "default": "unknown",
+      "title": "Parts Missing"
+    },
+    "primary_damage": {
+      "default": "unknown",
+      "title": "Primary Damage",
+      "type": "string"
+    },
+    "questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Questions",
+      "type": "array"
+    },
+    "reader": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reader"
+    },
+    "region": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region"
+    },
+    "repair": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Repair"
+    },
+    "run_status": {
+      "default": "unknown",
+      "title": "Run Status",
+      "type": "string"
+    },
+    "secondary_damage": {
+      "default": "unknown",
+      "title": "Secondary Damage",
+      "type": "string"
+    },
+    "sell_by_days": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sell By Days"
+    },
+    "seller_type": {
+      "default": "unknown",
+      "title": "Seller Type",
+      "type": "string"
+    },
+    "storage_cost_per_day": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Storage Cost Per Day"
+    },
+    "symptoms": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Symptoms",
+      "type": "array"
+    },
+    "title_in_hand": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "default": "unknown",
+      "title": "Title In Hand"
+    },
+    "title_state": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Title State"
+    },
+    "title_status": {
+      "default": "unknown",
+      "title": "Title Status",
+      "type": "string"
+    },
+    "transmission_condition": {
+      "default": "unknown",
+      "title": "Transmission Condition",
+      "type": "string"
+    },
+    "values": {
+      "additionalProperties": true,
+      "title": "Values",
+      "type": "object"
+    },
+    "vehicle": {
+      "additionalProperties": true,
+      "title": "Vehicle",
+      "type": "object"
+    },
+    "vin": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Vin"
+    },
+    "warning_lights": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warning Lights",
+      "type": "array"
+    },
+    "zip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Zip"
+    }
+  },
+  "title": "Assessment",
+  "type": "object"
+}

@@ -23,6 +23,10 @@ from underscope.models import (
 from underscope.valuation import Range, Valuation, value_vehicle
 
 PATHS = (Path.REPAIR_THEN_ACV, Path.ACV_AS_IS, Path.COPART_SALVAGE, Path.PART_OUT)
+ACV_PATHS = (Path.REPAIR_THEN_ACV, Path.ACV_AS_IS)
+# Start of the review reason for paths whose outcomes overlap (the routing bridge, which asks
+# "which marketplace", drops it in favor of a marketplace-level close call).
+OVERLAP_REASON = "Paths overlap heavily"
 
 
 @dataclass
@@ -95,6 +99,26 @@ def simulate(
     # factor together (a soft or strong branded-title market), so paths stay comparable.
     u_title = rng.random(n)
     factors = {t: _tri_ppf(u_title, a["title"]["factor"][t.value]) for t in TitleStatus}
+    # What the seller's description adds (valuation.condition_effects). Drawn last so a vehicle
+    # with no condition keeps exactly the draws above. A stated fact applies in every outcome,
+    # an unknown one in its chance of them.
+    one, zero = np.ones(n), np.zeros(n, dtype=np.int64)
+    f_as_is, f_repaired, f_copart = one, one, one
+    tow, extra_days = zero, zero
+    for e in val.effects:
+        on = rng.random(n) < e.chance
+        if e.repair:
+            rep = rep + np.where(on, _cents(_tri(rng, e.repair, n) * val.repair_scale), 0)
+        if e.acv_as_is:
+            f_as_is = f_as_is * np.where(on, _tri(rng, e.acv_as_is, n), 1.0)
+        if e.repaired:
+            f_repaired = f_repaired * np.where(on, _tri(rng, e.repaired, n), 1.0)
+        if e.copart:
+            f_copart = f_copart * np.where(on, _tri(rng, e.copart, n), 1.0)
+        if e.tow:
+            tow = tow + np.where(on, _cents(_tri(rng, e.tow, n)), 0)
+        if e.days:
+            extra_days = extra_days + np.where(on, e.days, 0)
 
     hold = tm["holding_cost_per_day_cents"]
     nets: dict[Path, np.ndarray] = {}
@@ -114,9 +138,9 @@ def simulate(
         branded = rep >= val.total_loss_threshold * clean_shocked
         brand = TitleStatus(a["title"]["brand_after_total_loss_repair"])
         title_factor = np.where(branded, factors[brand], factors[TitleStatus.CLEAN])
-    sale = _cents(val.repaired_value * market * title_factor)
+    sale = _cents(val.repaired_value * market * title_factor * f_repaired)
     fee = _cents(fees["acv"]["flat_cents"] + _pct(sale, fees["acv"]["pct_of_price"]))
-    holding = (repair_days + days[Path.REPAIR_THEN_ACV]) * hold
+    holding = (repair_days + days[Path.REPAIR_THEN_ACV] + extra_days) * hold
     h = a["hidden_damage"]
     reserve = _pct(rep.astype(float), h["reserve_pct_of_repair"])
     for flag, extra in (
@@ -140,23 +164,23 @@ def simulate(
     # transport, margin). Flooring at the full salvage sale let ACV's lower fees win every wreck.
     expected_tf = a["title"]["factor"][vehicle.title_status.value][1]
     as_is_tf = np.where(branded, factors[TitleStatus.SALVAGE], factors[vehicle.title_status])
-    salvage_sale = _cents(salv * market)
+    salvage_sale = _cents(salv * market * f_copart)
     cf = fees["copart"]
     flip_cost = (cf["flat_cents"] + _pct(salvage_sale, cf["pct_of_price"]) + t_cop
                  + _pct(salvage_sale, a["market"].get("as_is_dealer_flip_margin_pct", 10)))
-    sale = np.maximum(_cents(val.as_is_value * market * as_is_tf / expected_tf),
+    sale = np.maximum(_cents(val.as_is_value * market * as_is_tf / expected_tf * f_as_is),
                       _cents(salvage_sale - flip_cost))
     fee = _cents(fees["acv"]["flat_cents"] + _pct(sale, fees["acv"]["pct_of_price"]))
-    holding = days[Path.ACV_AS_IS] * hold
-    nets[Path.ACV_AS_IS] = sale - fee - t_acv - holding
+    holding = (days[Path.ACV_AS_IS] + extra_days) * hold
+    nets[Path.ACV_AS_IS] = sale - fee - t_acv - tow - holding
     comps[Path.ACV_AS_IS] = {
-        "sale_price": sale, "acv_fees": -fee, "transport": -t_acv, "holding": -holding,
+        "sale_price": sale, "acv_fees": -fee, "transport": -(t_acv + tow), "holding": -holding,
     }  # fmt: skip
 
     # 3. Sell as salvage on Copart.
     sale = salvage_sale
     fee = _cents(fees["copart"]["flat_cents"] + _pct(sale, fees["copart"]["pct_of_price"]))
-    holding = days[Path.COPART_SALVAGE] * hold
+    holding = (days[Path.COPART_SALVAGE] + extra_days) * hold
     nets[Path.COPART_SALVAGE] = sale - fee - t_cop - holding
     comps[Path.COPART_SALVAGE] = {
         "sale_price": sale, "copart_fees": -fee, "transport": -t_cop, "holding": -holding,
@@ -173,14 +197,32 @@ def simulate(
     return SimResult(nets, comps, float(branded.mean()))
 
 
-def p_not_best(nets: dict[Path, np.ndarray], winner: Path) -> float:
-    """Share of paired draws in which some other path nets more than the winner."""
-    rivals = np.max(np.stack([nets[p] for p in PATHS if p != winner]), axis=0)
-    return float(np.mean(rivals > nets[winner]))
+def p_not_best(
+    nets: dict[Path, np.ndarray], winner: Path, paths: tuple[Path, ...] = PATHS
+) -> float:
+    """Share of paired draws in which some other allowed path nets more than the winner."""
+    rivals = [nets[p] for p in paths if p != winner]
+    if not rivals:
+        return 0.0
+    return float(np.mean(np.max(np.stack(rivals), axis=0) > nets[winner]))
 
 
-def _winner(nets: dict[Path, np.ndarray]) -> Path:
-    return max(PATHS, key=lambda p: (int(round(nets[p].mean())), -PATHS.index(p)))
+def destination_share(nets: dict[Path, np.ndarray], paths: tuple[Path, ...] = PATHS) -> float:
+    """Share of paired draws in which the best allowed ACV path nets more than the best allowed
+    other path (Copart, or part-out when allowed): the chance ACV is the right marketplace.
+    1.0 or 0.0 when only one side is allowed."""
+    acv = [nets[p] for p in paths if p in ACV_PATHS]
+    other = [nets[p] for p in paths if p not in ACV_PATHS]
+    if not other:
+        return 1.0
+    if not acv:
+        return 0.0
+    best = lambda xs: np.max(np.stack(xs), axis=0)  # noqa: E731
+    return float(np.mean(best(acv) > best(other)))
+
+
+def _winner(nets: dict[Path, np.ndarray], paths: tuple[Path, ...] = PATHS) -> Path:
+    return max(paths, key=lambda p: (int(round(nets[p].mean())), -PATHS.index(p)))
 
 
 def _dollars(cents: int) -> str:
@@ -196,9 +238,9 @@ LABEL = {
 }
 
 
-def _options(sim: SimResult) -> list[DispositionOption]:
+def _options(sim: SimResult, paths: tuple[Path, ...] = PATHS) -> list[DispositionOption]:
     opts = []
-    for p in PATHS:
+    for p in paths:
         x = sim.nets[p]
         p10, p50, p90 = (int(round(v)) for v in np.percentile(x, [10, 50, 90]))
         opts.append(
@@ -225,7 +267,11 @@ FLIP_SCALE_MAX = 3.0
 
 
 def repair_cost_flip(
-    vehicle: VehicleRecord, findings: list[DamageFinding], a: Assumptions, iters: int = 14
+    vehicle: VehicleRecord,
+    findings: list[DamageFinding],
+    a: Assumptions,
+    iters: int = 14,
+    paths: tuple[Path, ...] = PATHS,
 ) -> RepairFlip:
     """Find where rescaling the repair estimate changes the winner, by bisection.
 
@@ -234,7 +280,7 @@ def repair_cost_flip(
     """
 
     def winner(k: float) -> Path:
-        return _winner(simulate(vehicle, value_vehicle(vehicle, findings, a, k), a).nets)
+        return _winner(simulate(vehicle, value_vehicle(vehicle, findings, a, k), a).nets, paths)
 
     base = winner(1.0)
 
@@ -260,6 +306,8 @@ def _flip_conditions(
     val: Valuation,
     flip: RepairFlip,
 ) -> list[str]:
+    if len(ranked) < 2:
+        return []  # one allowed path: nothing to flip to
     win, run = ranked[0], ranked[1]
     gap = win.expected_cents - run.expected_cents
     out = []
@@ -307,22 +355,29 @@ def evaluate(
     vehicle: VehicleRecord,
     findings: list[DamageFinding],
     a: Assumptions | None = None,
+    paths: tuple[Path, ...] = PATHS,
 ) -> Recommendation:
+    """Rank the allowed paths (all four by default; the routing bridge passes the exits a car's
+    title and seller allow) by expected net proceeds."""
     a = a or default_assumptions()
+    paths = tuple(p for p in PATHS if p in paths)
+    if not paths:
+        raise ValueError("no allowed disposition paths")
     sim_cfg = a["simulation"]
     val = value_vehicle(vehicle, findings, a)
     sim = simulate(vehicle, val, a)
-    ranked = _options(sim)
-    win, run = ranked[0], ranked[1]
+    ranked = _options(sim, paths)
+    win = ranked[0]
+    run = ranked[1] if len(ranked) > 1 else None
 
     reasons: list[str] = []
     # Paired draws share market shocks, so this is the chance the runner-up truly beats the winner.
-    overlap = float(np.mean(sim.nets[run.path] > sim.nets[win.path]))
+    overlap = float(np.mean(sim.nets[run.path] > sim.nets[win.path])) if run else 0.0
     # Review looks at every rival, not just the runner-up: a third path can be the real threat.
-    not_best = p_not_best(sim.nets, win.path)
+    not_best = p_not_best(sim.nets, win.path, paths)
     if not_best >= sim_cfg["review_overlap_threshold"]:
         reasons.append(
-            f"Paths overlap heavily: another path beat the winner in {not_best:.0%} of "
+            f"{OVERLAP_REASON}: another path beat the winner in {not_best:.0%} of "
             "simulated outcomes."
         )
     if val.mean_confidence < sim_cfg["low_confidence_threshold"]:
@@ -333,8 +388,8 @@ def evaluate(
     # Only relevant on insurance claims where a material share of draws crosses the threshold.
     if sim.branded_share >= sim_cfg["total_loss_min_branded_share"]:
         brand = TitleStatus(a["title"]["brand_after_total_loss_repair"])
-        w_clean = _winner(simulate(vehicle, val, a, force_title=TitleStatus.CLEAN).nets)
-        w_brand = _winner(simulate(vehicle, val, a, force_title=brand).nets)
+        w_clean = _winner(simulate(vehicle, val, a, force_title=TitleStatus.CLEAN).nets, paths)
+        w_brand = _winner(simulate(vehicle, val, a, force_title=brand).nets, paths)
         if w_clean != w_brand:
             tl_flip = (w_clean, w_brand)
             reasons.append(
@@ -348,15 +403,15 @@ def evaluate(
     return Recommendation(
         vin=vehicle.vin,
         winner=win.path,
-        answer=persona_answer(vehicle, val, sim, win.path),
+        answer=persona_answer(vehicle, val, sim, win.path, paths),
         options=ranked,
         needs_human_review=bool(reasons),
         review_reasons=reasons,
         total_loss_decides=total_loss_decides,
         explanation=explanation,
         flip_conditions=_flip_conditions(
-            ranked, a, vehicle, val, repair_cost_flip(vehicle, findings, a)
-        ),
+            ranked, a, vehicle, val, repair_cost_flip(vehicle, findings, a, paths=paths)
+        ) if run else [],
     )
 
 
@@ -366,7 +421,11 @@ TOTAL_LOSS_CLEAR = 0.8
 
 
 def persona_answer(
-    vehicle: VehicleRecord, val: Valuation, sim: SimResult, winner: Path
+    vehicle: VehicleRecord,
+    val: Valuation,
+    sim: SimResult,
+    winner: Path,
+    paths: tuple[Path, ...] = PATHS,
 ) -> str:
     """One-line answer to the question each persona actually asks."""
     if vehicle.insurance_claim:
@@ -388,6 +447,8 @@ def persona_answer(
                 f"Best path on current numbers: {LABEL[winner]}."
             )
         return f"Not a total loss: {facts}. Best path: {LABEL[winner]}."
+    if not all(p in paths for p in ACV_PATHS):
+        return f"Best of the allowed exits: {LABEL[winner]}."
     diff = sim.nets[Path.REPAIR_THEN_ACV] - sim.nets[Path.ACV_AS_IS]
     margin = int(round(diff.mean()))
     share = float(np.mean(diff > 0))
@@ -410,7 +471,13 @@ def _explain(
     tl_flip: tuple[Path, Path] | None,
     sim: SimResult,
 ) -> str:
-    win, run = ranked[0], ranked[1]
+    win = ranked[0]
+    if len(ranked) < 2:
+        return (
+            f"Only allowed path: {LABEL[win.path]}, expected net {_dollars(win.expected_cents)} "
+            f"(P10 {_dollars(win.p10_cents)}, P90 {_dollars(win.p90_cents)})."
+        )
+    run = ranked[1]
     gap = win.expected_cents - run.expected_cents
     text = (
         f"Best path: {LABEL[win.path]}, expected net {_dollars(win.expected_cents)} "

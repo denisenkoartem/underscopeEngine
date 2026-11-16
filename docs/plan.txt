@@ -1,0 +1,1225 @@
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  Underscope: Channel-Routing Intelligence
+  — Research Plan, Requirements and
+  Architecture
+    Nov 5, 2026        ·   ​@Artem Denisenko
+
+
+
+
+  Executive summary
+  Build a routing engine, not a price predictor. After a VIPER scan, the system ranks the
+  channels a vehicle could go to (ACV dealer wholesale, Copart salvage, Copart's fleet and
+  bank lane, a recycler, a direct buyer) by expected net proceeds, probability the sale
+  completes, time to cash and post-sale risk, then names the buyer segment most likely to
+  pay. A good buyer is the one with the highest expected net to the seller after fees,
+  transport and unwind risk, with a completion probability above a floor, not the highest
+  bidder.
+
+  Three facts shape everything below:
+
+         ACV and Copart are now one company. Copart completed its $1.9 billion, $10.50-per-
+         share acquisition of ACV on 16 Oct 2026; ACV runs as an independent subsidiary.
+         Copart describes the combination as a remarketing platform spanning trade-ins,
+         wholesale and salvage. The channel question this doc answers is now an internal
+         problem for them, which is both the biggest opportunity and the biggest platform risk.
+         The volumes are large and already segmented. Copart sold more than 4 million units
+         in its last fiscal year, 81% of them from insurers. ACV sold 829,276 units in 2025
+         through 14,905 sellers and 22,062 buyers. Copart's fleet, bank and rental lane (Blue
+         Car) grew about 20% in its latest quarter, which is where mis-routed vehicles most
+         likely sit today.
+         We cannot get their data before a prototype exists, and we cannot price repairs
+         precisely. So the mechanism is built on proxy data (public Copart results, VIN decode,
+         price indexes, our own scans), synthetic outcomes and a backtest harness, with a
+         published data contract so their data plugs in later. The output is a ranked
+         recommendation with a confidence band and a short list of what to verify, never a
+         single number.
+
+  The doc contains seven research-agent briefs (section 3) with the findings each produced
+  (sections 4 to 7), the buyer scorecard (8), the requirements (9), the architecture (10), the
+  no-data build plan (11), costs (12), readiness and risks (13) and a 90-day plan with the
+
+
+
+                                                                                          Page 1 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  questions to put to Copart/ACV (14).
+
+
+  The question, restated
+  The decision is "where does this vehicle earn the most for its seller, net and risk-adjusted,
+  and who is the buyer there", taken once per vehicle right after the scan. VIPER and its
+  predecessors already produce the condition facts; what nobody produces is the
+  comparison across channels that now sit inside one company.
+
+  Why "predict the price" is the wrong framing:
+
+         A price point will be wrong often, and the first wrong number costs you the seller's
+         trust. A ranking only has to get the order right, and it can say when two channels are
+         too close to call.
+         Repair cost cannot be estimated precisely from photos (frame, mechanical and flood
+         damage are invisible), so any channel that depends on a repair estimate must carry a
+         wide band. The ranking can still be confident when the gap between channels is larger
+         than the band.
+         Routing is a treatment-effect problem. For each past vehicle you only observe the
+         channel it went to, never the counterfactual. The mechanism therefore has to be built
+         around explicit assumptions, simulation and controlled experiments, not a single
+         supervised model.
+
+  What the engine must answer for every scanned vehicle:
+
+     1. Which channels are legally and contractually available (title type, state rules, seller
+        agreements)?
+     2. For each available channel, what is the distribution of net proceeds to the seller, the
+        probability the sale completes without unwind, and the days to cash?
+     3. Which buyer segment inside the winning channel is the likely payer (dealer by region
+        and inventory gap, rebuilder, dismantler, exporter, fleet buyer), and how reliable is
+        that segment?
+     4. How confident is the ranking, and which single piece of missing information would
+        change it?
+     5. What should a human verify before the vehicle is assigned?
+
+
+
+
+                                                                                             Page 2 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  Research agents
+  Eight briefs below. Each was run for this doc (findings in sections 4 to 7 and 12 to 13) and is
+  written so it can be handed to a Claude Code sub-agent unchanged. Run agents 1 to 7 in
+  parallel, each writing a findings-<n>.md with every claim linked to a page it opened; run
+  agent 8 last against the other seven. Agents must mark any number they could not source
+  as "unverified" rather than drop it or guess.
+
+     1. Customer and volume agent. Goal: name every seller type that makes a channel
+         decision for damaged or off-cycle vehicles, with annual volumes. Questions: how
+         many units do insurers, fleets, rental companies, banks, franchise and independent
+         dealers dispose of each year, through which channels, and who inside each decides?
+         Where do decisions get made by rule today (for example, every total loss goes to
+         salvage)? Sources: Copart and ACV 10-Ks and earnings calls, Manheim and Cox
+         Automotive reports, NADA data, fleet remarketing trade press (Auto Remarketing,
+         Automotive Fleet). Deliverable: a segment table (segment, units per year, current
+         channel, who decides, what they optimize). Done when every segment has a sourced
+         volume or an explicit "unknown".
+     2. Analog and incumbent agent. Goal: catalogue every product that already decides a
+        channel or predicts a channel price. Questions: what do ACV MAX, Copart IntelliSeller
+        and ProQuote, vAuto ProfitTime GPS, Cox Upside, OPENLANE tools, Manheim MMR
+        and recycler bid tools (Car-Part Bidmate, reParta) take as input, output and charge?
+        Which of them compare channels, and which assume one channel? Sources: product
+         pages, pricing pages, demo videos, dealer forums, patents. Deliverable: a comparison
+         table plus a one-paragraph statement of the gap. Done when each tool has inputs,
+         outputs, price and "channels compared" filled or marked unknown.
+     3. Outside-opinion agent. Goal: capture what dealers, remarketers, analysts and buyers
+        say about AI inspection, AI pricing and "intelligence platforms". Questions: do dealers
+         trust AI condition reports; what do they say about arbitration; what did analysts say
+         the Copart-ACV combination is for; where have algorithmic pricing businesses failed
+         (Vroom, Shift, Carvana's early years) and why? Sources: earnings transcripts, analyst
+         notes, Dealer Refresh and Reddit dealer threads, Auto Remarketing, Automotive
+         News, S&P and Cox commentary. Deliverable: a list of recurring objections with
+         quotes and the counter-evidence for each. Done when at least ten distinct objections
+         are sourced.
+     4. Data agent. Goal: list every dataset usable before Copart/ACV share anything, with
+        license, cost and what it covers. Questions: which public pages expose Copart sold
+        prices and lot attributes; which APIs decode VINs (NHTSA vPIC), price vehicles (Black
+
+
+
+                                                                                           Page 3 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+         Book, J.D. Power, KBB, Marketcheck) and price parts (Car-Part, eBay); what do the
+         sites' terms allow; what does a sample of 1,000 Copart lots look like? Sources: API
+         docs, terms of use, a scraped-by-hand sample. Deliverable: a data inventory table and
+         the data contract (section 7) listing exactly which fields we need from Copart/ACV.
+         Done when every field in the contract has a proxy or an explicit gap.
+     5. Decision-logic agent. Goal: specify the math. Questions: fee schedules and seller fees
+        on ACV and Copart; typical days to sale; arbitration and unwind rates by channel;
+         transport cost by distance; how buyer segments differ in what they pay for
+         (exporters, dismantlers, rebuilders, dealers). Sources: fee pages, 10-K risk sections,
+         ACV arbitration policy, Copart member terms, recycler trade press. Deliverable: the
+         net-proceeds formula per channel with every parameter sourced or flagged. Done
+         when the formula runs end to end on a sample vehicle with ranges.
+     6. Cost and architecture agent. Goal: price the operation. Questions: per-vehicle
+        inference cost on API models versus a self-hosted model; data licensing cost; human
+         review minutes per vehicle; infrastructure for 1,000 and 100,000 vehicles a month.
+         Sources: model pricing pages, cloud GPU pricing, BLS wages, data vendor quotes.
+         Deliverable: a cost table at two volumes. Done when every line has a source or a quote
+         request logged.
+     7. Readiness and go-to-market agent. Goal: judge whether Copart/ACV would adopt
+         this and how a startup gets in. Questions: what have they acquired and partnered on
+         (Monk, MAX Digital, ClearCar, Purple Wave); what pilots have they run with startups;
+         what did their deal announcement promise about cross-channel selling; what metrics
+         would their teams need to see? Sources: press releases, deal filings, conference talks,
+         LinkedIn posts by their product leaders. Deliverable: a pilot proposal and a list of
+         named counterparts. Done when the pilot has a metric, a sample size and a duration.
+     8. Red-team agent. Goal: argue that this should not be built, using agents 1 to 7's
+         findings. Questions: why would Copart build it internally within a year; what makes
+         the routing gain too small to pay for; what legal or contractual constraint kills the use
+         case; where could a wrong recommendation cause a loss we would be blamed for?
+         Deliverable: the five strongest objections and what evidence would settle each. Done
+         when each objection has a test, not a rebuttal.
+
+
+  Findings: who needs this (Agent 1)
+  The strongest customer is the combined Copart/ACV itself, followed by fleet, rental and
+  finance sellers; insurers are contract-bound and dealers are already served by Cox and
+  ACV tools. Today vehicles are routed by who consigns them, not by what they are: Copart
+
+
+
+                                                                                              Page 4 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  runs separate lanes for rental returns, repo and off-lease units, dealer cars and insurance
+  totals, and ACV runs dealer-to-dealer wholesale.
+
+
+     Segment                        Volume                          Channel today         Who decides      What they
+                                    (sourced)                                                              optimize
+
+     Insurers (total                81% of Copart's                 Salvage auction       Claims and       Salvage return,
+     losses)                        4M+ units a year                under contract        salvage teams,   cycle time
+                                    (Copart 10-K                                          by total-loss
+                                    FY2025)                                               rule
+
+     Fleet, rental,                 Blue Car lane up                Copart Rental         Remarketing      Net return,
+     bank and                       about 20% in Q4                 and Wholesale         manager          days to sale,
+     finance                        FY2026 (May to                  auctions,                              repair-or-sell
+                                    Jul 2026); fleet                Manheim,
+                                    and finance                     OPENLANE,
+                                    volume growing                  ACV commercial
+                                    at a double-digit
+                                    pace while
+                                    rental sellers
+                                    repair more (Q4
+                                    call, Q3 call)
+
+     Franchise and                  ACV: 829,276                    ACV, Manheim,         Used-car         Gross per unit,
+     independent                    units, 14,905                   OPENLANE,             manager          inventory turn,
+     dealers                        sellers, 22,062                 Copart dealer                          no arbitration
+                                    buyers in 2025                  lanes, Cox
+                                    (ACV 10-K                       Upside
+                                    2025); Copart
+                                    dealer units up
+                                    5.8% in Q4
+                                    FY2026
+
+
+
+
+                                                                                                                       Page 5 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Segment                        Volume                          Channel today         Who decides     What they
+                                    (sourced)                                                             optimize
+
+     Copart/ACV                     Copart sold                     Lane                  Yard and lane   Revenue per
+     internally                     more than 4M                    assignment by         rules, seller   unit, buyer
+                                    units in its last               seller type and       agreements      liquidity,
+                                    fiscal year; 25                 contract                              arbitration
+                                    dedicated                                                             cost
+                                    wholesale
+                                    facilities serve
+                                    80% of the
+                                    addressable
+                                    wholesale
+                                    market (Q4 call)
+
+
+  What the volumes say about demand:
+
+         Copart's CEO said the ACV combination could broaden access to franchise dealers
+         and higher-end trade-ins while supporting demand for lightly damaged insurance
+         vehicles and international sales. That is the routing problem stated by the buyer:
+         some insurance cars belong in the dealer channel, and some trade-ins belong with
+         Copart's international buyers.
+         Buyers already cross channels. Over the past three years a majority of the 30,000-
+         plus members who entered Copart through non-insurance vehicles bid on an
+         insurance vehicle within 90 days, so a buyer-fit model has a real population to learn
+         from.
+         Rental sellers are choosing repair over sale more often (Q3 FY2026 call), which means
+         the fix-versus-sell decision is live and currently made with the seller's own rules.
+         Total-loss frequency hit 23.3% in Q2 FY2026 (Nov 2025 to Jan 2026), a record for that
+         quarter, so the supply of damaged-but-sellable vehicles keeps rising while U.S. unit
+         volume fell 5.7% in Q4 FY2026. Routing that improves revenue per unit is worth more
+         to Copart when units are flat.
+
+  Seller types Copart names on its own site: insurance companies, financial institutions,
+  dealers, rental car companies, charities, fleet operators and individuals; buyer types:
+  dealers, dismantlers, rebuilders, exporters and the public (Copart release, 16 Oct 2026).
+
+
+
+
+                                                                                                                      Page 6 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  Findings: what already exists (Agent 2)
+  Every tool on the market prices a vehicle for one channel or compares at most two, and
+  each assumes its owner's marketplace; none ranks wholesale, salvage and parts side by
+  side with a buyer-segment view. That is the gap, and the deal announcement shows
+  Copart intends to fill it from the inside.
+
+
+    Tool                              Owner            Input                          Output               Channels        Price
+                                                                                                           compared
+
+    ACV MAX                           ACV              VIN, VIPER scan                Retail pricing       Retail vs ACV   Dealer
+    Recommendations                   (Copart)         (360 exterior,                 guidance,            wholesale       subscription;
+    and VIPER                                          undercarriage,                 wholesale                            not public
+                                                       damage detection,              guarantee,
+                                                       tire tread), MAX               consumer offer
+                                                       inventory data
+
+    ProQuote and                      Copart           Images, claim data             Salvage value        Copart          Bundled for
+    IntelliSeller                                                                     estimate, repair-    salvage only    sellers
+                                                                                      or-total support,
+                                                                                      minimum bids
+
+    vAuto ProfitTime                  Cox              Appraisal, market              Investment           Retail vs       Dealer
+    GPS                                                data                           value tier, retail   wholesale, by   subscription
+                                                                                      and acquisition      acquisition
+                                                                                      price                channel
+
+    Cox Upside                        Cox              KBB Instant Cash               Guaranteed           Retail vs Cox   Fee per sale;
+                                                       Offer appraisal                minimum              wholesale       not public
+                                                                                      wholesale price
+                                                                                      plus profit
+                                                                                      share; 500+
+                                                                                      dealers, about
+                                                                                      $30M shared
+                                                                                      back
+
+    Car-Part Bidmate                  Car-             Copart lot imports,            Value of each lot    Parts only      Recycler
+                                      Part.com         recycler's sales               to that recycler,    (buyer side)    subscription
+                                                       history and stock              damaged parts
+                                                                                      discounted
+
+    AutoEstimatePro,                  Startups         Listing photos, VIN            Repair cost, max     Buyer side,     Free to $99 a
+    sendit scan, TopFuel                                                              bid, flip verdict    salvage only    month
+
+
+  Three things follow:
+
+
+
+
+                                                                                                                                     Page 7 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+         The condition layer is solved by the incumbents. VIPER captures 360-degree exterior
+         imagery, undercarriage images, automatic damage detection and tire tread in under
+         60 seconds, built on more than one million inspections a year and 250-plus condition
+         data points per vehicle. We should consume that output, not rebuild it.
+         The guarantee is what sellers actually buy. Upside and ACV's guaranteed sale (18% of
+         ACV units by Q3 2025, per its Q3 2025 call) convert because they remove the seller's
+         market risk. A routing recommendation becomes a product when it can be backed by
+         a floor price, which needs the channel price distributions this doc specifies.
+         Nobody owns the comparison. Copart's CEO described the goal on the Q4 FY2026
+         call as connecting the right vehicle to the right buyer through the right channel
+         without forcing every vehicle into a single operating model (Repairer Driven News),
+         and said ACV cars will keep selling on ACV's site using Copart logistics. The brands
+         stay separate; the brain that decides between them does not exist yet.
+
+
+  Findings: what outsiders think (Agent 3)
+  The market does not doubt that AI can read a car; it doubts that anyone will stand behind
+  the result. Every recurring objection is about trust, arbitration and who eats the loss when
+  the machine is wrong.
+
+
+     Objection                                         Where it shows up                  What it means for the design
+
+     Condition reports and                             Dealer threads on Manheim          Every recommendation ships
+     arbitration favor the                             and reviews of ACV and             with the photos and
+     auction, not the buyer                            OPENLANE repeatedly cite           measurements behind it; a
+                                                       green-light cars with              buyer-risk score is part of the
+                                                       undisclosed faults and small       buyer definition
+                                                       arbitration credits
+
+     A visual inspection has                           The NAAA position                  Mechanical, frame and flood
+     limits by definition                              statement updated 1 Jun            risk are modeled as unknowns
+                                                       2026 defines a condition           with a price band, never
+                                                       report as a visual inspection      asserted
+                                                       with stated limitations
+                                                       (NAAA)
+
+
+
+
+                                                                                                                     Page 8 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Objection                                         Where it shows up                  What it means for the design
+
+     Guarantees cost more                              ACV's assurance revenue            Routing should send high-
+     than they earn when                               grew 27% to $81.6M in 2025         dispute-risk vehicles to as-is
+     inspection is wrong                               while its assurance cost of        channels and keep
+                                                       revenue grew 30% to                guaranteed channels for low-
+                                                       $73.3M (analysis)                  risk cars; this is a direct,
+                                                                                          measurable win for
+                                                                                          Copart/ACV
+
+     Algorithms do not fix                             Vroom shut its online used-        Do not take inventory or
+     operations                                        car business in 2024 after         promise a price; recommend,
+                                                       reconditioning and                 then measure realized net
+                                                       acquisition costs
+                                                       overwhelmed its pricing
+                                                       (post-mortem)
+
+     The incumbents will build                         Copart's deal rationale            Build the mechanism they
+     it themselves                                     names a combined demand            would otherwise build, with
+                                                       engine that gets the right         the evaluation harness they
+                                                       vehicle to the right buyer         lack, and sell it as a plug-in or
+                                                       (Copart release, 10 Sep            a pilot rather than a
+                                                       2026); Barrington called the       competitor
+                                                       deal a long-term growth
+                                                       catalyst, Needham moved
+                                                       ACV to hold (coverage)
+
+     Volume is the structural                          An investor note on Copart         Revenue-per-unit tools get
+     risk, not technology                              flags fewer accidents from         more valuable as units flatten,
+                                                       driver assistance and a            which is the pitch to Copart
+                                                       rising total-loss share as the
+                                                       two long-term risks (Parqet
+                                                       summary)
+
+
+  Two quotes worth keeping for the pitch: an auction executive told Auto Remarketing that
+  a good photograph is often worth more than a condition report (ServNet remarks), and
+  ACV's own buyer terms put buyers with a 25% arbitration rate or $250 average arbitration
+  cost into a limited program (ACV terms), which confirms that buyer-level dispute
+  behavior is already tracked and is the right raw material for a buyer score.
+
+
+
+
+                                                                                                                        Page 9 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  Findings: data we can and cannot get (Agent 4)
+  Enough public and licensed data exists to build and test the mechanism on the salvage
+  side; the dealer-wholesale side (ACV prices, condition reports, arbitration outcomes) is
+  only available from ACV, which is why the prototype must run on proxies and then accept
+  their data through a fixed contract.
+
+
+     Data                       Source now                        Covers                  License and       Gap
+                                                                                          cost
+
+     Copart lot                 Copart members                    Year, make,             Scraped data;     Buyer identity
+     attributes                 can download                      model, VIN,             terms of use      and buyer type
+     and final                  CSV sales data;                   damage, title           need a lawyer's   are not exposed
+     bids                       Copart's FAQ                      brand,                  read before
+                                says it does not                  odometer, run           commercial
+                                keep sold-price                   status, yard,           training
+                                data, but third                   sale date, final
+                                parties archive                   bid, estimated
+                                final bids (Copart                retail value
+                                FAQ, Bid.cars
+                                archive scraper,
+                                Apibara API)
+
+     VIN decode                 NHTSA vPIC API                    Build, trim,            Free, public      No options or
+                                                                  engine, plant                             color
+
+     Wholesale                  Black Book, J.D.                  Clean-title             Licensed;         Branded-title
+     and retail                 Power, KBB,                       values by trim,         quotes needed     adjustments are
+     values                     Marketcheck                       mileage and                               thin; measure
+                                APIs; Manheim                     region                                    them ourselves
+                                index for trend
+
+     Rebuilt and                J.D. Power                        20 to 40%               Public            Varies by model;
+     salvage                    guidance and a                    typical; about                            needs our own
+     discounts                  matched-listing                   17.6% in                                  measurement
+                                study (J.D. Power,                matched
+                                forcar.org)                       listings
+
+
+
+
+                                                                                                                            Page 10 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Data                       Source now                        Covers                  License and   Gap
+                                                                                          cost
+
+     Parts                      Car-Part.com,                     Part-level              Licensed or   Sell-through time
+     demand and                 eBay sold listings,               prices and              scraped       is the weak field
+     prices                     Hollander                         sell-through
+                                interchange
+                                (licensed to the
+                                industry, about
+                                155 parts and
+                                assemblies per
+                                vehicle)
+
+     Our own                    Underscope                        Condition               Owned         Small at first;
+     scans                      uploads: exterior,                labels from                           grows with every
+                                interior, engine                  our review                            review
+                                bay, underbody                    flow
+                                photos plus VIN
+
+     Title and                  State DMV                         Which                   Public        Must be encoded
+     state rules                statutes (for                     channels a                            state by state
+                                example Texas,                    title brand
+                                Nevada)                           allows
+
+
+  What only Copart/ACV hold: ACV sale prices and bids by buyer, condition reports with
+  inspector labels, arbitration claims and outcomes, buyer histories across both platforms,
+  seller contracts and fee schedules, transport costs by lane, and the VIPER output itself.
+  We do not need all of it on day one; we need a contract for it.
+
+  The data contract (what we ask for, per vehicle and per transaction):
+
+     1. Vehicle: VIN, odometer, title brand and state, seller type, intake location, VIPER
+        condition summary (damage list with part, type, severity, image references), tire
+         tread, undercarriage flags.
+     2. Listing and sale: channel, lane, auction date, reserve or guarantee, bid history (count,
+        top three bids, bidder segment), final price, fees charged, days from intake to sale,
+        transport miles.
+     3. Buyer: anonymized buyer id, segment (dealer, rebuilder, dismantler, exporter, public),
+        home region, lifetime purchases, arbitration rate, payment-default rate, export share.
+     4. Post-sale: arbitration opened (yes/no), reason, resolution, credit paid, unwind
+         (yes/no), relist outcome.
+
+
+
+                                                                                                                     Page 11 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     5. Counterfactual hooks: for a small random sample, the channel the rules would have
+         chosen and the channel actually used, so routing lift can be measured without bias.
+
+  Each field above is mapped to a proxy in the prototype (section 11) or marked as a gap the
+  pilot fills.
+
+
+  Definition of a good buyer
+  A good buyer for a given vehicle is the buyer segment whose expected net to the seller is
+  highest after fees, transport, holding time and post-sale risk, with a completion
+  probability above a floor the seller sets. The highest bid is not the test; a bid that is later
+  arbitrated, unwound or unpaid is worth less than a lower bid that closes.
+
+  The definition works at two levels. At the channel level, an auction lane is a mix of buyer
+  segments, so choosing the lane is choosing the mix; the engine picks the lane whose
+  buyer mix maximizes expected net for this vehicle. At the buyer level, for direct offers or
+  invitation-only sales, the same scorecard ranks named buyers.
+
+     \mathrm{Net}_{c} = \mathbb{E}[\mathrm{Price}_{c}] - \mathrm{Fees}_{c} -
+     \mathrm{Transport}_{c} - \mathrm{Hold}_{c}(d) - P_{c}
+     (\mathrm{dispute})\,\mathbb{E}[\mathrm{credit}] - P_{c}
+     (\mathrm{unwind})\,\mathbb{E}[\mathrm{relist\ loss}]
+
+
+  where c is a channel (or a buyer segment inside it), d is expected days to cash, and every
+  term carries a range, not a point.
+
+
+     Dimension                        What it measures                         Proxy in the prototype   Signal once
+                                                                                                        Copart/ACV data
+                                                                                                        plugs in
+
+     Willingness to                   Price distribution a                     Copart final bids by     Bid histories by
+     pay for this                     segment pays for this                    lane and damage type;    bidder segment on
+     vehicle                          make, model, age,                        clean-value APIs;        both platforms
+                                      damage and title                         parts prices for
+                                                                               dismantler value;
+                                                                               export demand by
+                                                                               model from
+                                                                               international bid
+                                                                               share
+
+
+
+
+                                                                                                                          Page 12 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Dimension                        What it measures                         Proxy in the prototype    Signal once
+                                                                                                         Copart/ACV data
+                                                                                                         plugs in
+
+     Probability of                   Bid turns into                           Assume lane-level         Buyer-level close rate,
+     completion                       payment and pickup                       averages; flag as         payment-default rate
+                                                                               unverified
+
+     Post-sale risk                   Chance of arbitration                    Channel rules: Copart     Buyer arbitration rate
+                                      or unwind and its                        sells as-is, ACV offers   and average credit;
+                                      cost                                     a 10-day arbitration      ACV already
+                                                                               window and caps           thresholds buyers at
+                                                                               remedies at price paid    25% rate or $250
+                                                                               (ACV policy)              average cost
+
+     Time to cash                     Days from                                Lane calendars            Measured per lane
+                                      assignment to funds                      (Copart rental and        and buyer segment
+                                                                               wholesale auctions
+                                                                               run twice weekly),
+                                                                               ACV 20-minute
+                                                                               auctions, parts 6 to 18
+                                                                               months
+
+     Cost to reach                    Transport, fees,                         Distance to yard and      Actual transport
+                                      export paperwork                         buyer region; public      lanes and seller
+                                                                               buyer-fee tiers           contracts
+
+     Fit                              Does this segment                        Dismantlers for high-     Crossover behavior:
+                                      want this vehicle                        demand parts models,      Copart reports most
+                                      more than others do                      rebuilders for light      non-insurance
+                                                                               damage on clean-title     entrants bid on
+                                                                               cars, exporters for       insurance cars within
+                                                                               models with foreign       90 days
+                                                                               demand, dealers for
+                                                                               retail-ready units
+
+
+  Decision rules on top of the score:
+
+         Rank channels by expected net; show the top two with their bands. If the bands
+         overlap by more than a threshold (start at 15% of the lower band), declare "too close
+         to call" and name the one check that would separate them.
+
+
+
+
+                                                                                                                            Page 13 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+         Apply the seller's preference as weights: a fleet remarketer may trade $200 of
+         expected net for ten fewer days to cash; a dealer may refuse any channel with
+         arbitration exposure above a limit.
+         Exclude channels the title or state law forbids before scoring (non-repairable titles
+         cannot be rebuilt or registered in Texas and must go to a licensed wrecker in Nevada).
+         Route high-dispute-risk vehicles (hidden mechanical or frame unknowns) to as-is
+         channels unless the price gain in a guaranteed channel exceeds the expected dispute
+         cost.
+
+
+  Platform requirements
+  The platform takes a scanned vehicle and returns a ranked channel recommendation with
+  a buyer segment, a net-proceeds band, a confidence level and a verification list, within 60
+  seconds of the scan, and records what happened afterwards so the next
+  recommendation is better.
+
+  Inputs
+
+     1. VIPER (or any inspection) payload: VIN, 360 exterior images, undercarriage images,
+         damage list (part, type, severity, image reference), tire tread, timestamps. When
+         VIPER is absent, the same schema is filled from Underscope's own photo flow
+         (exterior, interior, engine bay, underbody).
+     2. Non-visual facts the scan cannot give: odometer, title brand and state, keys, runs-and-
+        drives, engine start clip (ACV records 30 seconds of engine audio through startup,
+        idle, two revs and shutoff for its reports), dash warning lights.
+     3. Seller profile: seller type, location, contracts and lanes available to them, preference
+         weights (price vs speed vs risk), repair capability.
+     4. Market data feeds: clean values, salvage comps, parts prices, fee schedules, transport
+        rates.
+
+  Outputs
+
+     1. Ranked list of available channels with expected net (P10, P50, P90), days to cash,
+        completion probability and dispute risk.
+     2. Buyer segment most likely to pay in the winning channel, with the reason in one
+        sentence.
+     3. Confidence: clear winner, close call, or insufficient information, plus the single check
+        that would most change the ranking.
+
+
+
+
+                                                                                             Page 14 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     4. Evidence pack: the images, measurements and comparables behind the numbers, so a
+        human or a buyer can audit it.
+     5. A decision record: inputs, model versions, recommendation, who approved it, what
+        the seller chose, and the realized outcome when known.
+
+  Functional requirements
+
+         Eligibility filter runs first: title brand, state rules, seller contract, export restrictions;
+         excluded channels are shown as excluded with the reason.
+         Every channel estimate is a distribution from comparables plus model adjustment,
+         never a single predicted price.
+         Repair-cost estimates carry an explicit band and a list of invisible-risk items (frame,
+         mechanical, flood) that widen it.
+         Human review is routed by rule: close calls, high-value vehicles, low-confidence vision
+         output, and a random blind sample, 3% at the start and raised as bands calibrate,
+         reviewed without seeing the model's answer, to measure what the model misses.
+         Outcome capture is mandatory: the system cannot close a decision record without a
+         realized channel and price or an explicit "unknown".
+         Explanations are written for a used-car manager, not a data scientist: three reasons,
+         two risks, one next step.
+         Seller preferences change the ranking in real time and are stored with the decision
+         record.
+
+  Non-functional requirements
+
+         Latency: ranking in under 60 seconds after the scan; market data cached and
+         refreshed daily.
+         Scale: 1,000 vehicles a month in the pilot, designed for 100,000 a month (Copart's U.S.
+         volume is several hundred thousand a month).
+         Auditability: every number traceable to its inputs and model version for 7 years,
+         matching the retention sellers' finance teams expect.
+         Data boundaries: seller data never trains a model used for another seller's competitor
+         without contract permission; buyer identities stay anonymized outside the platform
+         owner.
+         Portability: the engine runs as a service behind an API; Copart/ACV can host it inside
+         their environment with their data never leaving.
+         Model governance: a model cannot be promoted without passing the backtest
+         harness in section 11 on held-out vehicles.
+
+
+
+                                                                                                   Page 15 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  Out of scope for the first version: retail pricing for consumers, repair shop management,
+  bidding automation on behalf of buyers, and any purchase of inventory by the platform.
+
+
+  Underlying logic and architecture
+  Rules decide what is allowed, estimators compute what each channel would pay, a policy
+  ranks the channels under uncertainty, and realized outcomes feed back into the
+  estimators. No stage is a single black-box prediction, and every stage can be replaced
+  when Copart/ACV data arrives without changing the stages around it.
+
+
+     Stage                            Rules or model                                      Why
+
+     Eligibility filter               Rules                                               Title law and contracts are facts, and
+                                                                                          a wrong channel here is a legal
+                                                                                          problem, not a statistical one
+
+     Condition                        Model (vision) plus a fixed                         Turns any scan into one part-level
+     normalizer                       schema                                              damage graph so estimators never
+                                                                                          see raw photos
+
+     Channel                          Comparables plus a small model                      Each channel has its own data and
+     estimators                       per channel                                         its own failure modes; separate
+                                                                                          models keep errors from leaking
+                                                                                          across channels
+
+     Decision policy                  Deterministic over sampled                          Monte Carlo over the estimators'
+                                      outcomes                                            bands gives the probability that
+                                                                                          each channel is best, which is what a
+                                                                                          close-call test needs
+
+     Human review                     Rules                                               Review budget is spent where it
+     router                                                                               changes decisions or measures the
+                                                                                          model, never everywhere
+
+     Feedback                         Calibration plus randomized                         Only a randomized slice reveals
+                                      experiments                                         routing lift; observational data
+                                                                                          cannot
+
+
+
+
+                                                                                                                             Page 16 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  channel-routing engine · 7 stages, 4 estimators, 1 feedback loop
+
+  The scan and the seller's facts pass a rules-only filter, become a part-level condition
+  graph, are priced by four independent estimators fed by swappable data adapters, ranked
+  by one policy, reviewed by rule, delivered with evidence, and closed with a mandatory
+  outcome that recalibrates the estimators.
+
+  How the policy ranks:
+
+
+
+                                                                                          Page 17 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     1. Draw 2,000 samples from each channel's net distribution (price band, days, dispute
+         and unwind probabilities).
+     2. Compute the share of samples in which each channel wins; the recommended
+        channel is the one with the highest share, not the highest mean.
+     3. If the top two shares are within the close-call threshold, compute which single input
+        (frame check, engine clip, title confirmation) would most reduce the overlap; that
+        becomes the verification item.
+     4. Apply seller weights (price, speed, risk) as a utility over the samples, then re-rank.
+     5. Name the buyer segment with the highest expected contribution inside the winning
+        channel, with one reason.
+
+  Interfaces, so the engine can live inside Copart/ACV later:
+
+          POST /route takes the scan payload, facts and seller profile; returns the ranking,
+         bands, buyer segment, confidence and verification list.
+         Market adapters are plug-ins behind one schema ( comps , values , parts , fees ,
+          transport ); the prototype ships proxy adapters, the pilot swaps in theirs.
+
+          POST /outcome closes a decision record; a record cannot close without a realized
+         channel and price or an explicit unknown.
+         Every response carries model versions and an evidence pack id for audit.
+
+
+  Building without real data
+  The prototype proves the mechanism, not the prices: it runs end to end on proxy data,
+  publishes bands whose coverage we can measure on the salvage side, and ships with a
+  harness that shows exactly what changes when Copart/ACV data replaces the proxies.
+  The sentence to Copart is "here is the engine, the schema and the test that measures lift;
+  plug in your data and run it in shadow mode".
+
+
+     Contract field                               Proxy in the prototype                  Assumption to state out loud
+
+     Copart final price by                        Archived sold lots from an              Archives are complete and
+     lane, damage, title                          aggregator (tens of thousands           unbiased for the models we
+                                                  of lots), plus members' CSV             pick; verify on a hand sample
+                                                  sales data
+
+
+
+
+                                                                                                                    Page 18 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Contract field                               Proxy in the prototype                  Assumption to state out loud
+
+     ACV sale price and bids                      Clean wholesale values from a           Condition adjustments
+                                                  licensed API, adjusted by               transfer across models; the
+                                                  condition grade; a panel of 3 to        panel is small and regional
+                                                  5 partner dealers sharing their
+                                                  own ACV sales history (sellers
+                                                  own their records)
+
+     Buyer segment of the                         Lane buyer mix from Copart's            Mix is stable month to month
+     winner                                       own descriptions (dismantlers
+                                                  largest by volume,
+                                                  international buyers about
+                                                  30% of units)
+
+     Arbitration and unwind                       ACV policy terms (10-day                Rates per segment are
+                                                  window, 25% rate threshold)             unknown until the pilot
+                                                  as bounds; Copart as-is
+
+     Days to cash                                 Lane calendars and auction              Payment timing by segment is
+                                                  formats                                 unknown
+
+     Transport                                    Distance to nearest yard times          Rates vary by lane and season
+                                                  a published per-mile rate
+
+     Repair cost                                  Parts prices plus labor-hour            Labor times are approximate
+                                                  heuristics, always as a band            until a shop partner supplies
+                                                                                          invoices
+
+
+  Simulation, used for the policy and never as a result:
+
+         Fit a distribution per channel to the proxies, then simulate 10,000 vehicles with known
+         "true" outcomes in every channel. This is the only place the counterfactual exists, so it
+         is where the ranking policy, the close-call threshold and the review router are tuned.
+         Run sensitivity on every parameter. The ones that flip the most decisions (expected:
+         dispute cost in the guaranteed channel, rebuilt-title discount, days to cash for parts)
+         become the first measurements of the pilot.
+         Publish regret: how much net the policy gives up versus a perfect oracle, so the pilot
+         has a number to beat.
+
+  The evaluation harness (a model is promoted only if it passes):
+
+
+
+
+                                                                                                                    Page 19 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     1. Condition: dollar-weighted recall of damage against blind human labels on our own
+         scans; missing a $2,000 part counts twenty times a $100 scratch.
+     2. Price bands: on held-out Copart lots, the P10 to P90 band must cover 80% of realized
+        prices and be no wider than a fixed-width baseline.
+     3. Ranking: on lots where the realized channel is known, the probability-of-winning
+        estimate must be calibrated (when the engine says 70%, it is right about 70% of the
+        time).
+     4. Plug-in: swapping an adapter for a partner dataset requires zero code changes and a
+        re-run of tests 1 to 3.
+     5. Shadow mode at the pilot: the engine recommends silently next to the current lane
+        rules; agreement rate, and lift measured only on a randomized 10% slice where the
+        engine's choice is followed.
+
+  What we need from them to switch out of proxy mode is the contract in section 7; what
+  we need from no one is everything above.
+
+
+  Operational costs
+  Running the engine costs about $2 to $5 per vehicle at pilot volume and under $1 per
+  vehicle at scale, and more than 60% of the scaled cost is human review, not AI. The design
+  lever is therefore the review router, and the breakeven bar is low: at 100,000 vehicles a
+  month the engine pays for itself if it adds about $0.70 of net per vehicle scanned, for
+  example $14 more on one vehicle in twenty.
+
+
+
+
+                                                                                          Page 20 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Line                                Basis                                Per vehicle    1,000 a   100,000 a month
+                                                                                             month     (scale)
+                                                                                             (pilot)
+
+     Vision on 30                        Haiku 5.5 at $0.10                   $0.006         $6        $600
+     photos, API model                   per million input
+                                         tokens for prompts
+                                         under 100K, about
+                                         1,568 tokens per
+                                         photo (pricing,
+                                         vision docs);
+                                         Sonnet 5.5 at $2
+                                         input and $10
+                                         output is about
+                                         $0.11
+
+     Vision, self-                       A published run                      $0.001 plus    $600      $1,200 (two GPUs)
+     hosted fine-tuned                   served a fine-                       about $600 a
+     model                               tuned 8B model on                    month per
+                                         one A10G at about                    GPU
+                                         $0.003 per 98
+                                         images (Oxen); idle
+                                         GPU time
+                                         dominates at low
+                                         volume
+
+     Explanation text                    Short structured                     $0.001         $1        $100
+                                         output, about
+                                         2,000 tokens on
+                                         Haiku 5.5
+
+
+
+
+                                                                                                                    Page 21 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Line                                Basis                                Per vehicle   1,000 a     100,000 a month
+                                                                                            month       (scale)
+                                                                                            (pilot)
+
+     Human review                        20% of vehicles                      $0.47         $470        $47,000 (about 8
+                                         routed at 3                                                    full-time
+                                         minutes plus a 3%                                              reviewers)
+                                         blind sample at 5
+                                         minutes, about
+                                         0.75 minutes
+                                         average, priced at
+                                         the BLS median for
+                                         auto damage
+                                         appraisers, $78,240
+                                         a year or about
+                                         $0.63 a minute
+                                         (BLS via Wagedex)
+
+     Market data                         Value, parts and                     varies        $1,000 to   $5,000 to $20,000
+     licenses                            archive feeds;                                     $3,000
+                                         unverified
+                                         estimate pending
+                                         vendor quotes
+
+     Infrastructure                      API, storage,                        varies        $500        $10,000
+                                         database,
+                                         monitoring;
+                                         unverified
+                                         estimate
+
+     Total (API vision)                                                       about $2 to   $2,000 to   $63,000 to
+                                                                              $5            $4,000      $78,000, about
+                                                                                                        $0.63 to $0.78 per
+                                                                                                        vehicle
+
+
+  Notes on the numbers:
+
+         Engineering and data-science salaries are excluded; they are the real cost of the first
+         year and do not scale with vehicles.
+         The review mix is a design choice. The blind sample starts at 3%; raising it to 7% would
+         add about $13,000 a month at scale but sharpen the measurement of what the model
+         misses; raise it if the harness shows calibration drifting.
+
+
+
+                                                                                                                      Page 22 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+         If Copart/ACV host the engine, their existing inspection and arbitration staff can
+         absorb the review minutes, which turns the largest line into a reassignment rather
+         than new spend.
+         Per-vehicle AI cost is small enough that model choice should follow accuracy on the
+         harness, not price.
+
+
+  Production readiness, risks and open questions
+  Verdict: not ready for production as a standalone product, and it should not try to be; it is
+  ready for a shadow-mode pilot inside one partner's workflow in about 90 days if scope
+  narrows to one seller segment (fleet, rental or finance units with damage) and one region.
+  Copart/ACV are the natural host: their deal rationale names the capability, ACV stays a
+  separate subsidiary with its own site, and the integration they have announced covers
+  buyer liquidity, logistics and selected technology, not a cross-channel decision layer.
+
+  Whether they would bring it to production depends on three things we cannot know from
+  outside: who owns the "combined demand engine" inside Copart, whether they prefer to
+  buy capability (Monk in 2022, ACV in 2026) or license it, and how much integration
+  bandwidth remains before fiscal 2028, when they expect the deal to be accretive. The
+  pilot is designed to answer all three.
+
+
+     Risk                                            Why it matters                       Test that settles it
+
+     Copart builds it internally                     The 10 Sep 2026 release              Propose a 90-day shadow
+                                                     promises the right vehicle to        pilot; if declined, the engine is
+                                                     the right buyer; they bought         channel-agnostic and the
+                                                     Monk and ACV rather than             fleet and rental segment is
+                                                     partnering                           the fallback customer
+
+     Routing lift is small                           Most vehicles obviously              Measure the contestable
+                                                     belong where they go; the            share in proxy data (vehicles
+                                                     engine only earns on                 whose channel bands
+                                                     contestable ones                     overlap); if under 5% of
+                                                                                          volume with lift under $100
+                                                                                          each, stop
+
+     Data terms                                      Commercial training on               Lawyer's read of Copart and
+                                                     scraped auction archives may         ACV terms; prefer partner-
+                                                     breach site terms                    supplied data and sellers'
+                                                                                          own records
+
+
+
+
+                                                                                                                     Page 23 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     Risk                                            Why it matters                       Test that settles it
+
+     Wrong recommendation                            Sellers will blame the tool;         Decision-support terms,
+     causes a loss                                   guarantees need a balance            errors-and-omissions cover,
+                                                     sheet                                shadow mode first, no price
+                                                                                          guarantee without a partner
+                                                                                          underwriting it
+
+     Title and state law                             Non-repairable titles cannot         Encode rules for the ten
+                                                     be rebuilt in Texas or Nevada;       highest-volume states before
+                                                     rules differ by state                the pilot; a vehicle with an
+                                                                                          unknown rule is routed to
+                                                                                          review
+
+     Vision misses subtle                            Dents and cracks score 27 to         Dollar-weighted recall gate in
+     damage                                          40 and 9 to 17 AP on the public      the harness; invisible-risk
+                                                     CarDD benchmark against 86           flags widen bands instead of
+                                                     to 90 for glass and tires            pretending
+
+     No access to VIPER                              VIPER is ACV's hardware and          Build against our own capture
+     output                                          payload                              using the same schema; the
+                                                                                          pilot maps VIPER fields to it
+
+     Objective conflict                              Routing for seller net can           Make the objective an
+                                                     move fees between Copart             explicit parameter (seller net,
+                                                     lanes and ACV                        platform revenue, blended)
+                                                                                          and report both
+
+     Operations creep                                Vroom-style losses came from         The platform never takes title
+                                                     owning inventory and                 to a vehicle
+                                                     reconditioning
+
+
+  Open questions the next conversations must answer:
+
+         Who inside Copart owns post-merger channel decisions, and is a third-party engine
+         acceptable to them?
+         What share of Blue Car and dealer consignments are contestable between lanes
+         today, by Copart's own numbers?
+         Will ACV expose the VIPER payload to a partner under NDA for a pilot?
+         What arbitration and unwind rates by buyer segment can they share in aggregate?
+         Which three partner dealers or one fleet will share their own sales records to seed
+         the ACV-side proxies?
+
+
+
+                                                                                                                    Page 24 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+  90-day plan and the questions for Copart/ACV
+  The goal of the 90 days is one sentence we can say to Copart with evidence: "we built the
+  routing mechanism, it is calibrated on the salvage side, and here is the test that measures
+  lift once your data is plugged in". The plan has three phases, each with a gate that can stop
+  the project.
+
+
+
+
+  90-day plan · 3 phases, 3 gates
+
+  Phase 1 builds the mechanism on proxies, Phase 2 adds partner evidence and calibration,
+  and Phase 3 runs it silently beside a partner's current rules; each gate must pass before
+  the next phase starts.
+
+  Pilot design to propose at Gate 2:
+
+         Metric: realized net proceeds per contestable vehicle, engine-routed versus rule-
+         routed, with days to cash and dispute rate as secondary measures.
+         Sample: about 1,600 vehicles per arm if the expected lift is $150 against a $1,500
+         spread in net (80% power, 5% significance); recompute once the real spread is
+         known.
+         Duration: 30 days in shadow mode, then 30 days with a randomized 10% slice following
+         the engine.
+         Scope: one lane (fleet, rental or finance units with damage), one region, one objective
+         (seller net), reported weekly.
+
+  Questions to put to Copart/ACV, in the order to ask them:
+
+     1. Who owns the "right vehicle to the right buyer through the right channel" capability
+        after the merger, and what have they already decided to build?
+     2. What share of Blue Car and dealer consignments do they see as contestable between
+         salvage, wholesale and ACV lanes?
+
+
+
+                                                                                              Page 25 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+     3. Would they run a 60-day shadow-mode pilot on one lane under NDA, with the data
+         contract in section 7 as the input?
+     4. Can ACV share the VIPER payload schema and a sample of anonymized scans?
+     5. What aggregate arbitration, unwind and days-to-cash figures by buyer segment can
+        they share to replace our proxies?
+     6. Would they prefer to license the engine, host it, or acquire it, and what evidence
+         would move them from pilot to production?
+
+  What we want to achieve, stated so it can fail: a calibrated engine, a measured contestable
+  share, a partner pilot under way, and a decision by 3 Feb 2027 on whether the lift justifies
+  production. If Copart/ACV decline, the same engine and evidence go to fleet and rental
+  remarketers, whose volume into Copart grew about 20% in the latest quarter.
+
+
+  Sources
+  Pages opened in full are marked (opened); the rest were read from search results and
+  should be opened before any number is quoted externally.
+
+         Copart completes acquisition of ACV, 16 Oct 2026 (opened): $10.50 a share, 68.43%
+         tendered, ACV as an independent subsidiary, more than 4M units sold
+         Copart to acquire ACV, 10 Sep 2026 release (opened): $1.9B equity value, deal
+         rationale, "right vehicle gets to the right buyer"
+         Copart Q4 FY2026 call highlights, MarketBeat (opened): Blue Car up about 20%,
+         dealer units up 5.8%, U.S. units down 5.7%, total-loss frequency 23.3%, 25 wholesale
+         facilities
+         Copart Q4 FY2026 call, Repairer Driven News: "right vehicle to the right buyer
+         through the right channel"
+         Copart Q3 FY2026 call highlights: crossover buyers, fleet and finance growth, rental
+         repair activity
+         Copart 10-K FY2025: 81% of vehicles from insurers
+         Copart rental auction and wholesale auction pages: lane structure by seller type
+         ACV 10-K 2025: 829,276 units, sellers and buyers
+         ACV Q3 2025 call summary: guarantee at 18% of units, VIPER pilots
+         ACV VIPER nationwide release and NADA 2026 release: what VIPER captures
+         ACV arbitration policy and limited arbitration program terms
+         ACV 2025 assurance economics
+
+
+
+                                                                                             Page 26 of 27
+Underscope: Channel-Routing Intelligence — Research Plan, Requirements and Architecture
+
+
+
+
+         ACV engine audio research: 30-second audio and vibration recording
+         Cox Upside expansion and ProfitTime GPS launch
+         Car-Part Bidmate and Hollander interchange background
+         DealerRefresh Manheim threads, ACV reviews, OPENLANE reviews
+         NAAA condition report position statement, 1 Jun 2026
+         Vroom post-mortem
+         Copart searching FAQ, Bid.cars archive scraper, auction data API write-up
+         J.D. Power on rebuilt titles and matched-listing study
+         Texas nonrepairable title statute and Nevada form
+         CarDD benchmark results and Qwen3-VL fine-tune experiment (opened)
+         Claude Haiku 5.5 pricing, Sonnet 5.5 overview, vision token math
+         BLS wage for auto damage appraisers via Wagedex
+
+
+
+
+                                                                                          Page 27 of 27
+

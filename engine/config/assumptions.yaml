@@ -46,7 +46,8 @@ market:
   as_is_floor_fraction: 0.10
   # A dealer buying a wreck on ACV only to resell it at salvage keeps this % of the salvage
   # price as margin (on top of Copart's fee and transport). Real data: ACV bids on cars later
-  # relisted at Copart.
+  # relisted at Copart. The routing check uses the same margin the other way round (buy on
+  # Copart, relist as-is on ACV) to flag an ACV as-is price the comps can't support.
   as_is_dealer_flip_margin_pct: 10
   # Accident-history haircut on clean value, scaled by damage score (expected repair cost /
   # clean value, capped at 1): a cosmetic fix carries little stigma, heavy damage the full %.
@@ -64,6 +65,11 @@ fees:
   copart:
     flat_cents: 15000
     pct_of_price: 8.0
+    # Paid by the buyer, so it only enters the cross-lane check (a dealer buying on Copart to
+    # relist on ACV). Third-party guides put Copart's total buyer fees near 11-13% of a $10k
+    # lot; replace with Copart's published buyer fee schedule.
+    buyer_flat_cents: 15000
+    buyer_pct_of_price: 10.0
 
 transport:
   status: PLACEHOLDER
@@ -141,6 +147,174 @@ hidden_damage:
   undercarriage_extra_cents: 150000
   engine_audio_extra_cents: 200000
   unknown_flag_extra_cents: 30000   # flag absent: allowance for unseen damage
+
+condition:
+  status: PLACEHOLDER
+  replace_with: Sale-price differences and repair invoices by run status, keys, engine and transmission condition, flood or fire history, odometer brand and title paperwork, from ACV and Copart results.
+  # What the seller's description says beyond the body damage (the reader's Assessment).
+  # effects: fact -> stated value -> what it does. Values not listed (runs_and_drives, ok,
+  # present, actual...) do nothing.
+  #   repair_cents   added to the repair cost [low, expected, high]; the as-is price follows it
+  #                  through market.as_is_discount_multiple_of_repair
+  #   acv_as_is, repaired   multiplier on that ACV sale price [low, expected, high]
+  #   copart         multiplier on the Copart price, only when no comps were given (comps are
+  #                  taken to match the car)
+  #   tow_cents      extra transport for the ACV as-is sale
+  #   days           extra holding days before any exit can sell
+  # unknown: a fact the description does not state is not guessed. In chance_pct % of the
+  # simulated outcomes it takes the bad `value` and its effects; in the rest it does nothing.
+  effects:
+    run_status:
+      starts:
+        acv_as_is: [0.85, 0.92, 0.97]
+        copart: [0.90, 0.95, 1.0]
+        tow_cents: [0, 7500, 15000]
+      does_not_start:
+        repair_cents: [20000, 120000, 400000]   # find and fix a no-start; skipped when the engine or transmission is stated failed
+        acv_as_is: [0.60, 0.72, 0.85]
+        copart: [0.75, 0.85, 0.95]
+        tow_cents: [10000, 20000, 35000]
+    keys:
+      "no":
+        repair_cents: [15000, 35000, 80000]
+    engine:
+      minor:
+        repair_cents: [20000, 60000, 150000]
+      failed:
+        repair_cents: [250000, 450000, 800000]
+    transmission:
+      minor:
+        repair_cents: [20000, 60000, 150000]
+      failed:
+        repair_cents: [200000, 350000, 600000]
+    catalytic_converter:
+      missing:
+        repair_cents: [80000, 180000, 350000]
+    airbags_deployed:
+      "yes":
+        repair_cents: [100000, 250000, 450000]   # skipped when the caller's repair estimate is used (it has the airbags)
+    flood_suspected:
+      "yes":
+        acv_as_is: [0.55, 0.70, 0.85]
+        repaired: [0.60, 0.72, 0.85]
+        copart: [0.80, 0.90, 1.0]
+    fire_damage:
+      "yes":
+        acv_as_is: [0.60, 0.75, 0.88]
+        repaired: [0.65, 0.78, 0.90]
+        copart: [0.80, 0.90, 1.0]
+    odometer_status:
+      not_actual:
+        acv_as_is: [0.75, 0.85, 0.92]
+        repaired: [0.75, 0.85, 0.92]
+      exempt:
+        acv_as_is: [0.92, 0.96, 1.0]
+        repaired: [0.92, 0.96, 1.0]
+    title_in_hand:
+      "no":
+        days: 21   # RULES.md T09
+    lien:
+      open:
+        days: 10   # RULES.md T10
+  unknown:
+    run_status: {value: does_not_start, chance_pct: 20}
+    keys: {value: "no", chance_pct: 5}
+    engine: {value: failed, chance_pct: 8}
+    transmission: {value: failed, chance_pct: 6}
+    catalytic_converter: {value: missing, chance_pct: 3}
+    airbags_deployed: {value: "yes", chance_pct: 10}
+    flood_suspected: {value: "yes", chance_pct: 3}
+    fire_damage: {value: "yes", chance_pct: 1}
+    odometer_status: {value: not_actual, chance_pct: 2}
+    title_in_hand: {value: "no", chance_pct: 10}
+    lien: {value: open, chance_pct: 8}
+
+grades:
+  status: PLACEHOLDER
+  replace_with: Inspection reports that pair a part's grade with its repair invoice (share of a full panel repair per grade), and how often a described or photographed damage is confirmed.
+  # How the app's part grades become damage findings (bridge.to_engine). severity is the share
+  # of a full panel repair; confidence is how sure the source is that the damage exists.
+  repairable: {damage_type: dent, severity: 0.35}
+  replace: {damage_type: broken, severity: 0.9}
+  confidence: 0.85
+  frame_suspected: {damage_type: crush, severity: 0.6, confidence: 0.6}
+
+router_training:
+  status: PLACEHOLDER
+  replace_with: Recorded outcomes (the same car's net on ACV and on Copart). With them these made-up cars are not needed (underscope train-router --data).
+  # The MADE-UP cars the router model is trained on while there are no recorded outcomes
+  # (router.generate). Shares are not market shares. The app sends the rules reader's JSON, so
+  # most facts are unstated: `unstated` is how often each fact is "unknown", set from the
+  # reader's own test (reader session, 2026-11-16: errors are almost always "unknown").
+  clean_value_dollars: [3000, 45000]        # log-uniform
+  mileage: [5000, 220000]
+  year: [2008, 2025]
+  title_share: {clean: 0.80, rebuilt: 0.12, lemon: 0.08}   # titles that allow both marketplaces
+  damaged_parts_geometric_p: 0.22           # number of damaged parts ~ geometric - 1
+  replace_share: 0.4                        # of damaged parts
+  rest_fine_share: 0.7                      # undamaged parts stated fine (else unknown)
+  comps_count: [3, 7]
+  comps_ratio: {base: 0.72, per_damaged_part: 0.045, sd: 0.14, spread_sigma: 0.2}   # comps / clean value
+  app_repair_estimate_share: 0.7            # bodies that carry the page's repair estimate
+  part_cost_dollars: {repairable: [150, 700], replace: [450, 2600]}
+  unstated:
+    run_status: 0.25
+    keys: 0.75
+    engine_condition: 0.70
+    transmission_condition: 0.70
+    catalytic_converter: 0.85
+    odometer_status: 0.80
+    title_in_hand: 0.60
+    lien: 0.70
+    flags: 0.40
+  # When stated, how often each value. Bad values are over-sampled so the model sees them.
+  stated:
+    run_status: {runs_and_drives: 0.5, starts: 0.2, does_not_start: 0.3}
+    keys: {"yes": 0.8, "no": 0.2}
+    engine_condition: {ok: 0.6, minor: 0.2, failed: 0.2}
+    transmission_condition: {ok: 0.65, minor: 0.2, failed: 0.15}
+    catalytic_converter: {present: 0.85, missing: 0.15}
+    odometer_status: {actual: 0.8, not_actual: 0.1, exempt: 0.1}
+    title_in_hand: {"yes": 0.75, "no": 0.25}
+    lien: {none: 0.75, open: 0.25}
+  flag_true:
+    airbags_deployed: 0.30
+    frame_suspected: 0.15
+    fluid_leak: 0.15
+    flood_suspected: 0.12
+    fire_damage: 0.08
+  model: {max_iter: 400, learning_rate: 0.08, threads: 4, held_out_share: 0.2}
+
+lanes:
+  status: PLACEHOLDER
+  replace_with: ACV and Copart listing policy by title brand. ACV's branded-title rule is unconfirmed (RULES.md T02 says verify).
+  # Exits each title may use, keyed by the title names the web app sends. Decided 2026-11-10:
+  # salvage, flood and non-repairable go to Copart only until ACV confirms its policy. RULES.md
+  # T02 excludes only ACV's as-is sale for salvage; add repair_then_acv to salvage to follow it.
+  by_title:
+    clean: [repair_then_acv, acv_as_is, copart_salvage]
+    rebuilt: [repair_then_acv, acv_as_is, copart_salvage]
+    lemon: [repair_then_acv, acv_as_is, copart_salvage]
+    salvage: [copart_salvage]
+    flood: [copart_salvage]
+    non_repairable: [copart_salvage]
+  why_excluded:
+    salvage: "Salvage title: ACV is excluded until ACV confirms its branded-title policy."
+    flood: "Flood title: ACV is excluded until ACV confirms its branded-title policy."
+    non_repairable: "Non-repairable title: it can't be repaired and resold, so only salvage buyers can take it."
+  # Part-out is a dismantler's own exit (teardown, months of parts sales). Most sellers don't
+  # dismantle, and dismantlers already bid on Copart, so their demand is in Copart's price.
+  seller_can_part_out: false
+
+routing:
+  status: PLACEHOLDER
+  replace_with: Thresholds checked by calibration on real outcomes (when it says 70%, ACV is right about 70% of the time).
+  # P(ACV beats Copart) at or above clear_above is a clear ACV answer, at or below clear_below a
+  # clear Copart answer, in between a close call (RULES.md D01).
+  clear_above: 0.70
+  clear_below: 0.30
+  model_acv_at: 0.50   # the router model sends the car to ACV at or above this p_acv
+  min_comps: 3   # fewer comparable salvage sales than this (or no clean value): not enough data
 
 simulation:
   status: PLACEHOLDER

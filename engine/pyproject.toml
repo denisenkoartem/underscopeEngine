@@ -7,7 +7,7 @@ name = "underscope"
 version = "0.1.0"
 description = "Vehicle intelligence platform: disposition decision engine for damaged vehicles"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2", "numpy", "pandas", "pyyaml", "typer"]
+dependencies = ["pydantic>=2", "numpy", "pandas", "pyyaml", "typer", "scikit-learn"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]

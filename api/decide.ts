@@ -1,10 +1,10 @@
-// POST /api/decide  { title_status, grades, flags, codes, values, assumptions? }
+// POST /api/decide  { title_status, grades, flags, values, assumptions? }
 //   -> repair band, after-repair value, as-is band, both net ranges, P(fix wins), verdict, check.
 // No AI here: the page calls it again on every reviewer edit.
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { ApiRequest, ApiResponse } from './_lib/http.js';
 import { decide, DECISION_CONFIG } from './_lib/decision.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -16,7 +16,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         title_status: 'clean | salvage | rebuilt | flood | non_repairable | lemon | unknown',
         grades: [{ part: 'hood', grade: 'replace' }],
         flags: { airbags_deployed: 'unknown', frame_suspected: false, fluid_leak: false },
-        codes: '[decoded codes from /api/decode-codes]',
         values: { clean_wholesale: 18000, salvage_comps: [6200, 6900, 7400] },
         assumptions: DECISION_CONFIG.defaults,
       },

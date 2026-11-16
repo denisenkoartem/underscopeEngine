@@ -41,6 +41,29 @@ class Path(StrEnum):
     PART_OUT = "part_out"
 
 
+class Condition(BaseModel):
+    """What the seller's description says beyond the damage itself (the reader's Assessment).
+    None means not stated: the simulation then runs the fact as a chance of its bad value
+    instead of guessing (config `condition`)."""
+
+    run_status: Literal["runs_and_drives", "starts", "does_not_start"] | None = None
+    keys: bool | None = None
+    engine: Literal["ok", "minor", "failed"] | None = None
+    transmission: Literal["ok", "minor", "failed"] | None = None
+    flood_suspected: bool | None = None
+    fire_damage: bool | None = None
+    airbags_deployed: bool | None = None
+    catalytic_converter: Literal["present", "missing"] | None = None
+    odometer_status: Literal["actual", "not_actual", "exempt"] | None = None
+    title_in_hand: bool | None = None
+    lien: Literal["none", "open"] | None = None
+
+    def stated(self, fact: str) -> str | None:
+        """The fact as the config spells it: yes / no for booleans, the value otherwise."""
+        v = getattr(self, fact)
+        return v if v is None or isinstance(v, str) else "yes" if v else "no"
+
+
 class VehicleRecord(BaseModel):
     vin: str
     year: int
@@ -69,6 +92,9 @@ class VehicleRecord(BaseModel):
     # When set it replaces the panel and mechanical estimates, and the hidden-damage reserve is
     # skipped so unseen damage isn't counted twice.
     repair_override_cents: tuple[int, int, int] | None = None
+    # Optional facts from the seller's description (run status, keys, engine, flood signs...).
+    # Absent: none of them is considered, as before the reader supplied them.
+    condition: Condition | None = None
     # Optional findings supplied inline (used when no detector labels exist).
     findings: list[DamageFinding] = Field(default_factory=list)
 

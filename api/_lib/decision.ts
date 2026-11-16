@@ -25,19 +25,17 @@ export const DECISION_CONFIG = {
     clean: [0, 0], rebuilt: [0.2, 0.4], salvage: [0.2, 0.4], flood: [0.3, 0.5], lemon: [0.15, 0.3], unknown: [0, 0.2],
   } as Record<string, [number, number]>,
   // Fixed amounts added to the TOP of the repair band, each recorded with its reason.
-  widen: { frame_suspected: 3000, airbags_unknown: 1500, fluid_leak_unknown: 500, critical_code: 2000, many_unknown_parts: 1000 },
+  widen: { frame_suspected: 3000, airbags_unknown: 1500, fluid_leak_unknown: 500, many_unknown_parts: 1000 },
   manyUnknownParts: 5,
 };
 
 export type Grade = { part: string; grade: 'fine' | 'repairable' | 'replace' | 'unknown' };
 type Tri = boolean | 'unknown';
 export type Flags = { airbags_deployed?: Tri; frame_suspected?: Tri; fluid_leak?: Tri };
-export type CodeIn = { code: string; description?: string; severity?: string; cost_low: number; cost_high: number };
 export type DecideInput = {
   title_status?: string;
   grades: Grade[];
   flags?: Flags;
-  codes?: CodeIn[];
   values?: { clean_wholesale?: number; salvage_comps?: number[] };
   assumptions?: Partial<typeof DECISION_CONFIG.defaults>;
 };
@@ -97,21 +95,15 @@ export function repairBand(inp: DecideInput, rate: number): Decision['repair'] {
   if (f.airbags_deployed === true && grades.get('interior') !== 'replace') {
     const l = partLine('interior', 'replace', rate, ' (airbags deployed)'); if (l) lines.push(l);
   }
-  for (const c of inp.codes ?? []) {
-    if (c.cost_high > 0) lines.push({ label: `${c.code}${c.description && c.description !== 'unknown' ? ` ${c.description}` : ''}`, low: c.cost_low, high: c.cost_high });
-  }
 
   const W = DECISION_CONFIG.widen;
   const widen: Widen[] = [];
   if (f.frame_suspected === true) widen.push({ key: 'frame_suspected', reason: 'Frame damage suspected', check: 'Get a frame inspection', amount: W.frame_suspected });
   if (f.airbags_deployed === 'unknown') widen.push({ key: 'airbags_unknown', reason: "Can't tell if airbags deployed", check: 'Check whether the airbags deployed', amount: W.airbags_unknown });
   if (f.fluid_leak === 'unknown') widen.push({ key: 'fluid_leak_unknown', reason: "Can't tell if fluids are leaking", check: 'Check under the vehicle for fluid leaks', amount: W.fluid_leak_unknown });
-  for (const c of inp.codes ?? []) {
-    if (c.severity === 'critical') widen.push({ key: `critical_code:${c.code}`, reason: `${c.code} is critical`, check: `Have a mechanic diagnose ${c.code}`, amount: W.critical_code });
-  }
   const unknownParts = [...grades.values()].filter((g) => g === 'unknown').length;
   if (unknownParts >= DECISION_CONFIG.manyUnknownParts) {
-    widen.push({ key: 'many_unknown_parts', reason: `${unknownParts} parts not visible in the photos`, check: 'Photograph the parts that aren\'t visible', amount: W.many_unknown_parts });
+    widen.push({ key: 'many_unknown_parts', reason: `${unknownParts} parts not described`, check: 'Describe or inspect the parts that aren\'t covered', amount: W.many_unknown_parts });
   }
 
   const low = lines.reduce((s, l) => s + l.low, 0);

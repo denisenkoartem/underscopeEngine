@@ -1,0 +1,162 @@
+{
+  "vin": "1GT12UEY2HF123456",
+  "vehicle": {
+    "year": "2017",
+    "make": "GMC",
+    "model": "Sierra",
+    "engine": null
+  },
+  "title_status": "unknown",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "hood",
+      "grade": "fine"
+    },
+    {
+      "part": "grille",
+      "grade": "fine"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "windshield",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "repairable"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "replace"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "replace"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "fine"
+    },
+    {
+      "part": "roof",
+      "grade": "fine"
+    },
+    {
+      "part": "interior",
+      "grade": "fine"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "fine"
+    },
+    {
+      "part": "underbody",
+      "grade": "unknown"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": false,
+    "frame_suspected": "unknown",
+    "fluid_leak": "unknown"
+  },
+  "codes": [
+    {
+      "code": "P0700",
+      "description": "Transmission control system malfunction (MIL request)",
+      "system": "transmission",
+      "severity": "moderate",
+      "cost_low": 100,
+      "cost_high": 3500,
+      "source": "generic_table"
+    },
+    {
+      "code": "P0730",
+      "description": "Incorrect gear ratio",
+      "system": "transmission",
+      "severity": "major",
+      "cost_low": 500,
+      "cost_high": 4500,
+      "source": "generic_table"
+    },
+    {
+      "code": "P0868",
+      "description": "Transmission fluid pressure low",
+      "system": "transmission",
+      "severity": "major",
+      "cost_low": 300,
+      "cost_high": 4000,
+      "source": "generic_table"
+    }
+  ],
+  "values": {
+    "clean_wholesale": 33500,
+    "salvage_comps": [
+      17500,
+      18900,
+      19800,
+      21000,
+      22400,
+      23600
+    ]
+  },
+  "repair": {
+    "low": 5200,
+    "high": 11800
+  },
+  "notes": "Transmission slips and goes into limp mode, still drives slowly. Title is in the mail, not sure what it says. 121,000 miles."
+}

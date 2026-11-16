@@ -1,0 +1,122 @@
+{
+  "vin": "1N4AL3AP5FC612345",
+  "vehicle": {
+    "year": "2015",
+    "make": "NISSAN",
+    "model": "Altima",
+    "engine": null
+  },
+  "title_status": "unknown",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "unknown"
+    },
+    {
+      "part": "hood",
+      "grade": "unknown"
+    },
+    {
+      "part": "grille",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "unknown"
+    },
+    {
+      "part": "windshield",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "unknown"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "unknown"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "unknown"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "unknown"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "unknown"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "unknown"
+    },
+    {
+      "part": "roof",
+      "grade": "unknown"
+    },
+    {
+      "part": "interior",
+      "grade": "unknown"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "unknown"
+    },
+    {
+      "part": "underbody",
+      "grade": "unknown"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": "unknown",
+    "frame_suspected": "unknown",
+    "fluid_leak": "unknown"
+  },
+  "codes": [],
+  "values": {
+    "salvage_comps": []
+  },
+  "notes": "Vendo Nissan Altima 2015, 140 mil millas, t\u00edtulo de salvamento de Florida. No arranca, la bater\u00eda est\u00e1 muerta. Se escane\u00f3: P0335 y P0340."
+}

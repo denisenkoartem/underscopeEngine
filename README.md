@@ -1,82 +1,85 @@
 # Underscope
 
-**Fix it and sell, or sell it as-is?** Underscope looks at photos of a damaged vehicle, plus its VIN and OBD-II trouble codes. It compares the likely net from repairing and selling against the likely net from selling as-is, and tells you which one probably pays more. When the two are too close to call, it says so and names the one check that would settle it.
+**Fix it and sell, or sell it as-is, and on which marketplace?** Underscope takes a VIN and the seller's own description of a damaged vehicle. It compares the likely net from repairing and selling against the likely net from selling as-is, and tells you which one probably pays more. When the two are too close to call, it says so and names the one check that would settle it.
+
+It uses no paid service: no AI call, no database, no keys.
 
 Built for UB Hacking as a demo for ACV, which is now part of Copart.
 
-## Live demo
+## Demo
 
-**https://underscope-eight.vercel.app**
+Run it locally with `npm run dev` (http://localhost:3000). It is not deployed anywhere right now.
 
-- Enter a VIN, title, photos, fault codes and market values, or click a sample vehicle (one for each kind of answer). You get both net ranges on one scale, P(fix wins), the verdict, and for close calls the one check that would settle it.
+- Enter a VIN and describe the vehicle in the one text box: title, mileage, damage, clean wholesale value and what similar damaged vehicles sold for, plus anything else. Or click a sample vehicle (one for each kind of answer). You get where to send it, both net ranges on one scale, P(fix wins), the verdict, and for close calls the one check that would settle it.
+- As you type, the page shows what it has read so far and what it still needs.
 - Click any part grade or damage flag in the result to change it; the recommendation recomputes live (the reviewer toggle).
-- Registered vehicles (real VINs with a verified title and values) fill in their title and values automatically.
-- APIs, all with open CORS so the Lovable app can call them:
-  - `GET /api/vehicle?vin=`: verified title and values from the demo registry.
-  - `POST /api/grade-photos` `{ vin, photos }`: OpenAI grades 25 parts from photos resized to ~1000px.
-  - `POST /api/decode-codes` `{ vin, codes, title_status? }`: decoded fault codes and their cost.
-  - `POST /api/decide` `{ title_status, grades, flags, codes, values }`: repair band, both nets, P(fix wins), verdict.
-- **Integrate** (https://underscope-eight.vercel.app/integrate.html): deep links like `/?vin=...&codes=...&run=1` that any listing page can use, a drag-to-bookmarks **"Fix or sell?" bookmarklet** that pulls the VIN off any listing page and opens a check, and the API calls.
-- Every push to `main` deploys automatically.
+- APIs, all with open CORS:
+  - `POST /api/parse-notes` `{ text }`: the description as JSON (title, mileage, state, run status, values, 25 part grades, flags), with the words each value came from and what is still missing. Rules only.
+  - `GET /api/vehicle?vin=`: year, make, model and engine from the free NHTSA vPIC decode.
+  - `POST /api/decide` `{ title_status, grades, flags, values }`: repair band, both nets, P(fix wins), verdict.
+  - `POST /api/route`: the marketplace, ACV or Copart (Python engine in `engine/`).
+- **Integrate** (`/integrate.html`): deep links like `/?vin=...&notes=...&run=1` that any listing page can use, a drag-to-bookmarks **"Fix or sell?" bookmarklet** that pulls the VIN off any listing page and opens a check, and the API calls.
 
 ## How it works
 
 ```
-photos + VIN + fault codes
+VIN + the seller's description
         │
-        ├─ vision     OpenAI grades 25 parts: fine / repairable / replace / unknown
-        │             and flags hidden risks (airbags, frame, fluid leaks)
-        ├─ codes      decode DTCs (Supabase table, or OpenAI + NHTSA vPIC for
-        │             manufacturer codes) → system, severity, cost band, triage
-        └─ decision   repair band (parts + labor, widened for unknowns)
-                      as-is band (comparable salvage sales)
-                      1,000 Monte Carlo draws → P(fix wins)
-                          > 70%  → fix
-                          < 30%  → sell as-is
-                          else   → too close to call + what to check
+        ├─ parser     rules read the text into JSON: title, mileage, market values,
+        │             25 parts graded fine / repairable / replace / unknown,
+        │             and three flags (airbags, frame, fluid leaks)
+        ├─ decision   repair band (parts + labor, widened for unknowns)
+        │             as-is band (comparable salvage sales)
+        │             1,000 Monte Carlo draws → P(fix wins)
+        │                 > 70%  → fix
+        │                 < 30%  → sell as-is
+        │                 else   → too close to call + what to check
+        └─ routing    ACV or Copart, from the same inputs and repair estimate
 ```
 
-Every result is a range, never a single price. Photos can't show frame, mechanical or flood damage, so the model marks those `unknown` instead of guessing, and unknowns widen the repair band.
+Every result is a range, never a single price. What the description does not say stays `unknown` instead of being guessed, and unknowns widen the repair band. Each parsed value is shown with the words it was read from.
 
 **Scope:** all passenger vehicles (cars, SUVs, pickups, vans).
 
-The front end is a Lovable app. The seller uploads photos and a VIN, then sees a grid of parts with their grades, the two net bands, and the recommendation. A reviewer can change any grade and the numbers recompute live.
+The seller sees what was read from the description, a grid of parts with their grades, the two net bands, and the recommendation. A reviewer can change any grade and the numbers recompute live.
 
 ## Repo layout
 
 | Folder | What's in it |
 |---|---|
-| `api/` | Vercel serverless functions (TypeScript). `vehicle.ts`: GET `?vin=` → verified title from the demo registry, if the VIN is in it. `decode-codes.ts`: POST `{ vin, codes, title_status? }` → decoded fault codes + triage. `grade-photos.ts`: POST `{ vin, photos }` → 25 part grades, flags, photo gaps. `decide.ts`: POST → repair band, both net ranges, P(fix wins), verdict. Shared logic in `api/_lib/` |
+| `api/` | HTTP functions, served by `scripts/dev-server.ts`. `parse-notes.ts`: description → JSON (`reader/src/rules.ts`). `vehicle.ts`: VIN → year, make, model. `decide.ts`: repair band, both nets, verdict (`_lib/decision.ts`). `route.py`: ACV or Copart. `engine.ts`: optional TypeScript engine with the trained reader. |
 | `public/` | The demo page and `demo_vehicles.json` (sample vehicles) |
-| `scripts/` | Seed and test scripts |
-| `supabase/migrations/` | Database schema (`dtc_codes`, `scans`) with row level security |
-| `data/` | `dtc_codes.csv` (60 generic OBD-II codes), `test_scans.json` (10 demo scans) |
-| `test_vehicles/` | 20 test vehicles (photos only, gitignored) |
+| `scripts/` | Dev servers and the decision test |
+| `data/` | `repair_costs.csv` (part × grade → parts cost, labor hours, paint) |
+| `reader/` | The reader: the seller's description in, one assessment JSON out (keyword rules, plus the fine-tuned model in `reader/model/` when it is served). See `reader/README.md` |
 | `engine/` | Artem's Python engine: damage detector, evaluation harness, calibration, review sheets, contracts. See `engine/README.md`. Tests: `cd engine && make test` (217 passing) |
 
-**Stack:** Lovable (React + TypeScript) front end on Vercel, Vercel functions in `api/`, OpenAI at request time for photo grading and fault codes (`openai`; no model training), Supabase (Postgres).
+**Stack:** plain HTML/JS page, HTTP functions in `api/` run by the local dev server (`npm run dev`), rule-based parsing, the free NHTSA vPIC VIN decode. No AI call and no database in the page's path.
 
 ## Setup
 
 Requires Node 20+.
 
 ```powershell
-npm install
-copy .env.example .env             # then fill in the values
-npm run seed:codes                 # load data/dtc_codes.csv into Supabase
-npm run seed:demo                  # decode the 10 demo scans and save them (is_demo = true)
-npm run seed:vehicles              # load real, verified VINs from data/vehicles.local.json (gitignored)
-npm run test:codes                 # run the 10 scans and print a summary table
-npm run test:decision              # run the sample vehicles through the decision and check each verdict
+pnpm install
+npm run test:decision              # sample vehicles: notes -> parser -> decision, checks every parsed value and verdict
 ```
 
-Keys are read only from environment variables: `.env` locally, Vercel project settings in production. `OPENAI_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are server-only; the front end only gets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+### Run locally
+
+```sh
+npm run dev                        # http://localhost:3000: public/ and api/*.ts (PORT=xxxx to change)
+python3 scripts/py-api.py          # 127.0.0.1:3001: api/*.py (/api/route); the dev server forwards to it
+```
+
+- `POST /api/engine { text }` is off unless `ENGINE_ENABLED=1`. When it is on, the description is also read by the trained reader, and the page shows that reading under the result.
+- The trained reader is served by `reader/model/serve.py`; see `reader/model/README.md`.
 
 ## Testing
 
-We run all 20 test vehicles and compare the model's grade with our own grade for each part. We report the agreement rate and the **expensive misses**: parts the model called `fine` that actually need `replace`.
+`npm run test:decision` runs each sample vehicle the way the page does. It fails if the parser reads anything other than the sample's title, grades, flags and values, or if the verdict changes.
 
-Known limitation: the vision model is good at broken glass, missing bumpers and flat tires, but weak on dents and scratches. Demo vehicles are chosen so the decision rests on obvious damage.
+Known limitation: the parser only understands what its rules cover. General statements ("front end damage"), mechanical faults and fault codes are kept as extra information and not used in the numbers. Wording outside its vocabulary is missed, not guessed.
 
 ## Beyond the hackathon
 
