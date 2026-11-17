@@ -1,0 +1,216 @@
+{
+  "trained_on": "simulated outcomes",
+  "sources": {
+    "simulation": 37493
+  },
+  "model": "HistGradientBoostingClassifier",
+  "scikit_learn": "1.9.1",
+  "seed": 7,
+  "rows": 29994,
+  "features": [
+    "clean_value",
+    "comps",
+    "comps_min",
+    "comps_median",
+    "comps_max",
+    "mileage",
+    "age",
+    "app_repair_low",
+    "app_repair_high",
+    "repair_quote",
+    "reserve_price",
+    "purchase_price",
+    "comps_median_usd",
+    "app_repair_high_usd",
+    "repair_quote_usd",
+    "reserve_price_usd",
+    "storage_cost_per_day",
+    "sell_by_days",
+    "parts_repairable",
+    "parts_replace",
+    "parts_unknown",
+    "codes",
+    "symptoms",
+    "symptoms_powertrain",
+    "light_check_engine",
+    "light_abs",
+    "light_airbag",
+    "light_other",
+    "grade_front_bumper",
+    "grade_hood",
+    "grade_grille",
+    "grade_left_headlight",
+    "grade_right_headlight",
+    "grade_windshield",
+    "grade_left_front_fender",
+    "grade_right_front_fender",
+    "grade_left_front_door",
+    "grade_right_front_door",
+    "grade_left_rear_door",
+    "grade_right_rear_door",
+    "grade_left_mirror",
+    "grade_right_mirror",
+    "grade_left_rear_quarter",
+    "grade_right_rear_quarter",
+    "grade_tailgate_or_rear_doors",
+    "grade_rear_bumper",
+    "grade_left_taillight",
+    "grade_right_taillight",
+    "grade_wheels_and_tires",
+    "grade_roof",
+    "grade_interior",
+    "grade_engine_bay",
+    "grade_underbody",
+    "flag_airbags_deployed",
+    "flag_frame_suspected",
+    "flag_fluid_leak",
+    "flag_flood_suspected",
+    "flag_fire_damage",
+    "title_in_hand",
+    "keys",
+    "parts_missing",
+    "title_status",
+    "lien",
+    "odometer_status",
+    "seller_type",
+    "run_status",
+    "engine_condition",
+    "transmission_condition",
+    "drivetrain",
+    "fuel_type",
+    "primary_damage",
+    "secondary_damage",
+    "catalytic_converter",
+    "already_repaired"
+  ],
+  "held_out": {
+    "rows": 7499,
+    "agreement": 0.7561,
+    "p_acv_mean_abs_error": 0.2513,
+    "band_agreement": 0.5346,
+    "acv_share": 0.5306,
+    "dollars_lost_per_car": 402.58,
+    "dollars_lost_per_miss": 1650.6,
+    "worst_miss_dollars": 38916.99,
+    "by_level": {
+      "full": {
+        "rows": 421,
+        "agreement": 0.9477,
+        "dollars_lost_per_car": 29.12
+      },
+      "reduced": {
+        "rows": 1735,
+        "agreement": 0.9026,
+        "dollars_lost_per_car": 74.59
+      },
+      "low": {
+        "rows": 5343,
+        "agreement": 0.6934,
+        "dollars_lost_per_car": 538.51
+      }
+    }
+  },
+  "top_features": [
+    [
+      "comps_median_usd",
+      0.0772
+    ],
+    [
+      "clean_value",
+      0.0365
+    ],
+    [
+      "run_status",
+      0.0324
+    ],
+    [
+      "parts_replace",
+      0.0304
+    ],
+    [
+      "reserve_price_usd",
+      0.024
+    ],
+    [
+      "title_status",
+      0.022
+    ],
+    [
+      "engine_condition",
+      0.0133
+    ],
+    [
+      "comps_min",
+      0.0132
+    ],
+    [
+      "comps_max",
+      0.012
+    ],
+    [
+      "transmission_condition",
+      0.0084
+    ],
+    [
+      "comps_median",
+      0.0054
+    ],
+    [
+      "app_repair_high_usd",
+      0.0051
+    ]
+  ],
+  "features_never_stated_in_training": [
+    "purchase_price"
+  ],
+  "reader_fixture": {
+    "rules": {
+      "rows": 191,
+      "model_decides": 104,
+      "same": 73,
+      "agreement": 0.7019
+    },
+    "label": {
+      "rows": 60,
+      "model_decides": 27,
+      "same": 18,
+      "agreement": 0.6667
+    },
+    "complete": {
+      "rows": 60,
+      "model_decides": 0,
+      "same": 0,
+      "agreement": null
+    }
+  },
+  "deployed": {
+    "cars": 3000,
+    "seed": 1007,
+    "rows": 2810,
+    "agreement": 0.7765,
+    "by_level": {
+      "full": {
+        "rows": 164,
+        "agreement": 1.0
+      },
+      "low": {
+        "rows": 1921,
+        "agreement": 0.7033
+      },
+      "reduced": {
+        "rows": 725,
+        "agreement": 0.92
+      }
+    },
+    "by_decider": {
+      "model": {
+        "rows": 1921,
+        "agreement": 0.7033
+      },
+      "simulation": {
+        "rows": 889,
+        "agreement": 0.9348
+      }
+    }
+  }
+}

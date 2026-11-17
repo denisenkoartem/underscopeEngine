@@ -1,7 +1,7 @@
 # Underscope — UB Hacking demo
 
 ## What we're building
-A demo for ACV (now owned by Copart) that looks at photos of a damaged vehicle and recommends: **fix it and sell, or sell as-is**. It does NOT predict an exact price; it compares two price *ranges* and says which option likely nets more, or "too close to call".
+A demo for ACV (now owned by Copart) that reads a seller's description of a damaged vehicle and recommends where to send it, **ACV or Copart**, and whether to **fix it first or sell as-is**. It does NOT predict an exact price; it compares two price *ranges* and says which option likely nets more, or "too close to call".
 
 This is a 24-hour hackathon build. Keep everything simple. Do not add features outside this file.
 
@@ -14,125 +14,117 @@ Read them only when a task needs the bigger picture; this file is the source of 
 
 ## Scope
 - Vehicles: all passenger vehicles (cars, SUVs, pickups, vans).
-- 20 test vehicles in `test_vehicles/<id>/` (photos only, used for testing, never training).
 
 ## Stack
-- Front end: Lovable app (React + TypeScript), hosted on Vercel.
-- Back end: Vercel serverless functions in `api/` (TypeScript). All AI calls happen here, never in the browser.
-- AI: OpenAI only, called at request time (team decision: no model training; not feasible in the hackathon window). Package `openai`, key `OPENAI_API_KEY` (Karthik's credit).
-  - Photo grading `api/grade-photos.ts`: `OPENAI_MODEL` (currently `gpt-5.5`), client from `openaiClient()` in `api/_lib/openai.ts`.
-  - Photo classification `api/classify-photos.ts`: `OPENAI_CLASSIFY_MODEL` (default `gpt-4o-mini`).
-  - Fault-code explanations `api/decode-codes.ts`: `OPENAI_CODES_MODEL` (defaults to `OPENAI_MODEL`); strict JSON schema, "unknown" allowed. About 9 s with gpt-5.5; set `OPENAI_CODES_MODEL=gpt-4o-mini` if speed matters more.
-  - Gemini/Vertex was removed. The Google Cloud project (`project-45b188c0-b276-4e00-a94`, service account `underscope-vertex`) is no longer used by the app.
-- Database: Supabase (Postgres), project `zkewmumlgbofqonxpwin`. Tables are small and demo-only; row level security on. Migrations in `supabase/migrations/`.
-- Secrets only in environment variables (`.env` locally, Vercel project settings in production): `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_CLASSIFY_MODEL`, `OPENAI_CODES_MODEL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (server only), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (front end). Never hardcode or commit keys.
+- Front end: Lovable app (React + TypeScript).
+- Back end: HTTP functions in `api/` (TypeScript), run locally by `scripts/dev-server.ts` (`npm run dev`); `api/*.py` by `scripts/py-api.py`. Request/response types are in `api/_lib/http.ts`. Vercel and Docker are disconnected for now (2026-11-16): no `vercel.json`, no `@vercel/node`, no Dockerfiles. The old Docker setup is on the local branch `archive/docker`. All AI calls happen here, never in the browser.
+- No paid services (decided 2026-11-16): the page and its APIs make no AI call, use no database and need no keys. Removed and kept on the local branch `archive/photos-and-codes`: OpenAI photo grading (`grade-photos`, `classify-photos`), the fault-code decoder (`decode-codes`, `dtc_codes`), and the Supabase registry with its migrations. The engine's router model (see "Do NOT build") runs locally and costs nothing.
+- What paid lookups would have given (title brand, clean wholesale value, salvage comps) the seller types instead, in one description box. See "Seller description".
+- The only outside call is the free NHTSA vPIC VIN decode (`GET /api/vehicle?vin=` -> year, make, model, engine, `check_digit_ok`).
+- `.env` is only needed for the optional `/api/engine` (see "Do NOT build").
 
 ## Repo layout
-- `api/` — Vercel functions (`decode-codes.ts` = fault codes module)
-- `scripts/` — seed and test scripts, run with `npm run <name>` (tsx)
-- `supabase/migrations/` — SQL migrations
-- `data/` — `dtc_codes.csv` (seeds the `dtc_codes` table), `test_scans.json` (10 demo scans)
-- `test_vehicles/` — test photos, gitignored
-- `engine/` — Artem's Python engine (merged from denisenkoartem/underscop with its history): damage detector, evaluation harness, calibration, review sheets, JSON Schema contracts (`engine/docs/contracts`). It has its own `CLAUDE.md` and `README.md`; read those when working inside `engine/`. Setup: `cd engine && python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"` (Windows) then `.venv/Scripts/python -m pytest -q`. Its vision detector uses OpenAI (`--detector openai`, `OPENAI_API_KEY` from the nearest `.env`); `underscope check VIN --photos DIR` runs a real car, `underscope learn` refits confidence calibration from checker-confirmed reviews.
-  - Routing (ACV vs Copart): `POST /api/route` (`api/route.py`, Vercel Python function; deps in root `requirements.txt`; `vercel.json` ships `engine/src` and `engine/config`) maps the page's inputs through `engine/src/underscope/bridge.py` and returns the engine's destination and four exits. The page shows it as "Where to send it".
-  - Known gap: `/api/decide` (fix vs sell as-is) and the engine use different repair-cost assumptions (`data/repair_costs.csv` vs `engine/config/assumptions.yaml`), so they can disagree on the same car.
+- `api/` — HTTP functions: `parse-notes.ts`, `vehicle.ts`, `repair-estimate.ts`, `route.py`, `engine.ts`
+- `scripts/` — dev servers, `test-samples.ts` and `prepare-sample-inputs.ts`
+- `.github/workflows/ci.yml` — type checks, reader tests, the sample test, and the engine's lint, schema check and tests
+- `data/` — `repair_costs.csv`
+- `reader/` — the reader (`@underscope/reader`): the seller's description in, one assessment JSON out (`reader/src/contract.ts`). It decides nothing; the engine analyzes the JSON. `read()` in `reader/src/read.ts` is the only entry point: the keyword rules (`rules.ts`) always read, the trained model (`model.ts`) reads too when `PARSER_BASE_URL` is set, and `merge()` is the one place that decides what the output says when they differ. `reader/model/` trains and serves the model. Root `npm run engine -- read "<text>"`, `npm run test:reader`. Install with `pnpm install` (one lockfile). See `reader/README.md`.
+- `docs/` — plans (`plan.pdf`, `build-plan.md`, `ratings-standardization-plan.md`, `team.md`). `docs/RULES.md` is the earlier team rule book; no code reads it.
+- `engine/` — the Python routing engine: ACV or Copart from the reader's assessment, with the dollar simulation and the router model. It has its own `CLAUDE.md` and `README.md` (code map, commands); read those when working inside `engine/`. Setup: `cd engine && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"`, then `make test` and `make lint`. The photo pipeline it once held (damage detector, review sheets, calibration, backtest) was removed on 2026-11-16 and is on the local branch `archive/engine-photo-pipeline`.
+  - Routing (ACV vs Copart): `POST /api/route` (`api/route.py`, served locally by `scripts/py-api.py`; deps in root `requirements.txt`) maps the page's inputs through `engine/src/underscope/bridge.py` and returns the marketplace (ACV or Copart). The page shows it as "Where to send it".
+    - The title decides the allowed exits first (`lanes` in `engine/config/assumptions.yaml`). Salvage, flood and non-repairable go to Copart only until ACV confirms its branded-title policy. Part-out is off: dismantlers already bid on Copart.
+    - Input: the reader's Assessment (`reader/src/contract.ts`), mirrored in `engine/src/underscope/assessment.py` (schema `engine/contracts/assessment.schema.json`; a test compares the two). Every key is optional and unknown keys are ignored. The engine runs on the Assessment alone: no VIN is needed, and an unknown year, mileage or state is noted and filled from `defaults` in the config, never treated as a fact. The page sends the whole parsed record plus `vehicle` and `repair`. `underscope route-assessment <file.json|jsonl>` routes reader output from a file. The mapping from the Assessment lives in `engine/src/underscope/intake.py`; `intake.FIELD_USE` says what every key changes (a dollar term, a rule, the confidence, or returned only) and `engine/tests/test_field_use.py` checks each one.
+    - After the title: flood signs the seller states (`flags.flood_suspected: true`, or water named as the damage area with no "no flood" statement) exclude ACV, policy not confirmed (`decided_by: condition_rule`, added 2026-11-17; `lanes.fact_excludes` in the config). Flood signs that are not stated are not a rule: they stay a share of the simulated outcomes.
+    - Then the seller: a private seller (`seller_type: individual`) or an insurer (`seller_type: insurer`, added 2026-11-16: insurers sell claim vehicles at salvage auction and supply about 80% of Copart's vehicles) cannot list on ACV, policy not confirmed (`decided_by: seller_rule`); then the seller's `lanes_allowed` and `sell_by_days` remove exits (`decided_by: seller_limit`). An earlier rule wins over the seller's limit; a limit that cannot be met is said in the review reasons.
+    - Facts beyond damage (run status, keys, engine, transmission, flood or fire signs, airbags, catalytic converter, odometer status, title in hand, lien, parts missing) change repair cost, prices or holding days (`condition` in `engine/config/assumptions.yaml`, all PLACEHOLDER). A fact that is not stated is not guessed: it takes its bad value in a set share of the simulated outcomes.
+    - Repair cost, in order: the page's `repair` estimate, the seller's `values.repair_estimate` (widened by a config spread), the engine's own panel costs (all 25 parts). `already_repaired: yes` means no remaining repair cost. `storage_cost_per_day` is added to every exit's holding cost.
+    - Reported per option, without changing the marketplace: `p_meets_reserve` (share of outcomes at or above `values.reserve_price`, with a warning under 50%) and `vs_purchase` (net minus `values.purchase_price`). The reader's `missing` comes back as `reader_missing`, `could_add` unchanged; a `conflicts` entry on a field the decision uses turns a clear answer into a close call and names the field in `verify_first`.
+    - Who decides (`decided_by`): the title rule, the stated-flood rule, the seller rule (private seller or insurer) or the seller's limit when one marketplace is left (`title_rule`, `condition_rule`, `seller_rule`, `seller_limit`; always `clear`). Otherwise, since 2026-11-16: the **simulation** when the seller gives the clean value and at least 3 comps (it then prices the car from the seller's own numbers), and the **router model** (`engine/src/underscope/router.py`, file `engine/models/router.joblib`, a scikit-learn classifier that gives `p_acv`) when a money fact is missing, where the simulation would run on placeholders. Measured on 2,890 fresh made-up cars: every fact given, simulation 99.4% and model 91.0%; clean value missing, simulation 47.7% and model 69.0%. `insufficient` is left only for a description with nothing to go on, or when there is no model file. The simulation always supplies the dollar ranges (`ranges_are_rough: true` without a clean value) and a model answer it disagrees with is flagged.
+    - Missing facts lower precision, they do not block the answer. The response's `precision` is `{level, note, not_given, agreement}`: the reader's level and "wouldn't be as precise" note, the expected facts not given, and the measured share of fresh made-up cars where the engine, answering as it does, picked the same marketplace as the full-information simulation (`underscope router-check`, stored in `router.json` under `deployed`; 2026-11-17: full 100.0% of 164 cars, reduced 92.0%, low 70.3%, all 77.7%; simulation-decided 93.5%, model-decided 70.3%). Level `low` is never `clear` unless a rule decided. These numbers are agreement with the engine's own simulation, not accuracy on real sales. Two outside checks (2026-11-17, after the stated-flood rule, the warning-light change and a retrain): `npx tsx scripts/market-check.ts` scores 60 made-up descriptions whose expected marketplace comes from published accounts of what ACV and Copart sell (`data/market_cases/cases.json`; 59 of 60, 286 of 300 with typos; 60 of 60 on the retrain before, the one miss is a model answer near 50%); and on a third party's published sample of real Copart lots (SalvageAlert, CC BY-NC, not kept in the repo, never training data) the engine sends 100% of salvage, parts-only and rebuilt lots and 43% of unbranded lots to Copart (46% and 42% on the two retrains before: the unbranded lots with no seller named are decided by the model, and their share moves with each retrain).
+    - What the model sees: the reader's JSON itself (`router.features`: clean value, comps as a share of it, the 25 grades, flags, run status, keys and every other reader field), nothing computed by the engine's formulas. What it learns from: rows of `{assessment, outcome: {acv_net, copart_net}}` (`engine/contracts/router-training-row.schema.json`).
+    - Today those rows are made-up cars labelled by the engine's own simulation on the full car, then masked the way reader output hides facts (rates in `engine/config/reader_given_rates.json`, rebuilt from `engine/tests/fixtures/reader_assessments.jsonl` with `underscope reader-rates`) (`underscope train-router`, report in `engine/reports/router.md`), so the model copies the simulation and knows nothing about real sales. The page says so under the answer. With recorded outcomes: `underscope train-router --data rows.jsonl`; `underscope router-data --out rows.jsonl` writes a template in that format. Retrain after any change to `assumptions.yaml` or to the features.
+    - Hand-set numbers live only in `engine/config/assumptions.yaml`, each section labelled PLACEHOLDER: grade-to-damage mapping (`grades`), condition effects (`condition`), the made-up training cars (`router_training`), thresholds (`routing`).
+    - `p_acv` is the chance that ACV's best exit nets more than Copart. `confidence` is `clear` at ≥0.70 or ≤0.30, `close_call` in between, and `insufficient` without a clean value and 3 comps. Two ACV exits overlapping is not a close call.
+    - An unknown title runs as clean and as salvage. When the two disagree: `verify_first: "Confirm the title brand"`.
+    - `input_checks` flags an ACV as-is price the comps can't support.
+  - One answer for repair-or-sell: the engine's. The page shows its two ACV exits (`repair_then_acv`, `acv_as_is`) and its `answer` sentence. The TypeScript fix-or-sell simulation that used to run beside it (`api/_lib/decision.ts`, `/api/decide`) was removed on 2026-11-16 because the two used different fees and disagreed on screen. Do not add a second place that compares exits.
 
-## Part list (25) — every part must appear in model output
+## Part list (25) — every part must appear in the parser's output
 front_bumper, hood, grille, left_headlight, right_headlight, windshield, left_front_fender, right_front_fender, left_front_door, right_front_door, left_rear_door, right_rear_door, left_mirror, right_mirror, left_rear_quarter, right_rear_quarter, tailgate_or_rear_doors, rear_bumper, left_taillight, right_taillight, wheels_and_tires, roof, interior (seats, dash, airbags), engine_bay (radiator area, leaks), underbody (frame rail, exhaust, catalytic converter)
 
 ## Grades
 - fine: no visible damage
 - repairable: damaged but can be fixed (dent, scratch, crack that can be repaired)
 - replace: broken, missing, or too damaged to repair
-- unknown: part not visible or unclear in the photos (mandatory option, use it rather than guess)
+- unknown: the description does not cover the part (mandatory option, use it rather than guess)
 
-## Vision call (OpenAI) — built: `api/grade-photos.ts`
-- Send all photos of one vehicle in ONE request; resize to ~1000 px long side.
-- System prompt demands JSON only. GPT-5 models reject `temperature: 0`, so output is pinned with a strict JSON schema instead (every part is a required key, grades are an enum) plus `reasoning_effort: low`.
-- Left/right always mean the vehicle's own sides (driver's seat view); the prompt says so explicitly because models otherwise mix up viewer and vehicle sides.
-- Parse the JSON; reject and retry if invalid or any part is missing.
-- Output shape:
+## Seller description — built: `reader/src/rules.ts`, `POST /api/parse-notes { text }`
+The form (since 2026-11-16) is a VIN field, eight required boxes and one general box. The required boxes are the facts the decision needs: title, mileage, clean wholesale value, sold prices of at least 3 similar damaged vehicles, what is damaged, and whether the airbags deployed, the frame is damaged, anything is leaking. Run is blocked while a required box is empty, unless the general box already gave that fact; "not sure" is an accepted answer and lowers precision. Under each box the page shows what was read from it. The general box takes everything else, and the trained reader reads it together with the boxes.
+- The reader still takes one text: `compose()` in `reader/src/form.ts` writes each box behind its lead ("Mileage: 84,000.") and appends the general box. `/api/parse-notes` and `/api/engine` accept `{ text }` or `{ fields, text }`. Deep links carry one parameter per box plus `notes`.
+- Together the boxes ask for (input confirmed 2026-11-16): the title (brand, in hand, lien); mileage and whether it is actual, the state, who is selling; whether it runs, keys, engine and transmission; where it was hit, what is damaged part by part and whether the rest is fine; airbags, frame, leaks, flood and fire signs, the catalytic converter; the clean wholesale value and sold prices of at least 3 similar damaged vehicles; a repair quote, the lowest price accepted, deadlines and storage fees; plus anything else.
+- `/api/parse-notes` is the reader's keyword rules alone (no AI, no cost) and runs as the seller types, so the page shows what was read under each box and what would make the answer more precise under the general box.
+- Output: the reader's contract, `reader/src/contract.ts`. The keys the page always used are unchanged; the rest were added on 2026-11-16 (`reader/README.md`, "Criteria"). Shortened:
 ```json
 {
-  "parts": [{"part": "hood", "grade": "replace", "confidence": 0.8, "evidence_photo": 2}],
-  "flags": {"airbags_deployed": "unknown", "frame_suspected": true, "fluid_leak": false},
-  "photo_gaps": ["no clear underbody photo"]
+  "reader": "rules", "vin": null, "title_status": "clean", "mileage": 84000, "region": "NY", "run_status": "runs_and_drives",
+  "title_in_hand": true, "lien": "none", "seller_type": "dealer", "keys": true, "primary_damage": "front",
+  "values": {"clean_wholesale": 24500, "salvage_comps": [9800, 10400, 11200], "repair_estimate": 4200, "reserve_price": 9000, "purchase_price": null},
+  "grades": [{"part": "hood", "grade": "replace"}],
+  "flags": {"airbags_deployed": false, "frame_suspected": false, "fluid_leak": "unknown", "flood_suspected": "unknown", "fire_damage": "unknown"},
+  "evidence": {"title_status": "clean ny title", "grades.hood": "Front bumper, hood and grille need replacing."},
+  "missing": ["whether any fluids are leaking"], "could_add": ["whether the catalytic converter is present"],
+  "questions": ["Which side is the fender on, driver or passenger?"],
+  "additional": ["Owner smoked in it."], "conflicts": []
 }
 ```
-- API key from environment variable `OPENAI_API_KEY`. Never put it in code or the front end. Uploaded photos are only graded, never used for training.
-- Endpoint (owner: Karthik; first version built, tune freely): `api/grade-photos.ts`, `POST { vin, photos }`. The demo page (`public/index.html`) calls it:
-  - `photos` is an array of JPEG data URLs (`data:image/jpeg;base64,...`), already resized in the browser to ~1000 px long side, in upload order.
-  - `evidence_photo` in the response is 1-based and matches the numbers shown on the page's thumbnails.
-  - Return the output shape above with status 200; on failure return a 4xx/5xx with `{ "error": "..." }`.
-  - Vercel caps request bodies at ~4.5 MB; the page limits uploads to 30 photos / 4 MB.
-  - Create the OpenAI client with `openaiClient()` from `api/_lib/openai.ts`. Tuning knobs (image detail, reasoning effort, max photos) are in `GRADE_CONFIG`.
-  - Two stages (Karthik): `POST /api/classify-photos` uses a cheap model (`OPENAI_CLASSIFY_MODEL`, default `gpt-4o-mini`, ~3 s) to label each photo's view (front_right, left_side, ...) and box close-up regions; the page cuts full-resolution crops and sends `views` + `crops` to `/api/grade-photos`. Side rule the models use: if the vehicle's nose points to the right edge of the picture, you're looking at its right side. Grading took ~30 s for one photo in testing; watch the 60 s Vercel limit on large photo sets.
+- `grades` always holds all 25 parts. A part the text does not mention is `unknown`, unless the text says the rest is fine ("everything else is fine", "no other damage"), which makes unmentioned parts `fine`.
+- Left/right are the vehicle's own sides: driver = left, passenger = right. A sided part with no side, or "bumper" with no front/rear, is not guessed: it becomes a question.
+- Warning lights (`warning_lights`: check_engine, abs, airbag, other): read from "<name> light is on", a list ("check engine and ABS lights") or names after "on the dash:". "No" and "off" apply to the light they are said about. A lamp ("brake light out") is not a warning light. In the engine each light is a chance of a repair, skipped only when that component is already stated as faulty.
+- Flags are three-way. A negation near the keyword gives `false`; "not sure", "not checked" or a question mark gives `unknown`.
+- Every value has the words it was read from in `evidence`. `expected` lists every fact the reader was expecting (given or not, `needed` or `helpful`); `missing` is the needed ones not given, `could_add` the helpful ones. `precision` (`full` | `reduced` | `low`, with a `note`) says the answer will be less precise when facts are missing; a missing fact does not block the answer. Sentences nothing was read from go to `additional` and are not used in the numbers.
+- A damage area (`primary_damage`, `secondary_damage`) is set only when the text names one ("front end hit", "hail damage"), never from a single damaged part.
+- Where `/api/engine` is on (`ENGINE_ENABLED=1`), `POST /api/engine { text }` returns the same JSON read by the rules and the trained model together (`reader: "rules+model"`), with `conflicts` listing what they read differently.
 
-## Fault codes module (owner: Tim) — built: `api/decode-codes.ts`
-Input: VIN + list of OBD-II trouble codes from a scan tool (e.g. ["P0300", "C1232"]).
-Steps:
-1. Validate format: letter + 4 characters. Letter = system: P powertrain, C chassis, B body, U network. Second character 0 = generic (same meaning for all makes), 1 = manufacturer-specific (meaning depends on make from VIN).
-2. Generic codes: look up the description in the Supabase table `dtc_codes` (code, description, system, severity, cost_low, cost_high), seeded from `data/dtc_codes.csv`.
-3. Manufacturer-specific or not found: ask OpenAI to explain it given the make/model from the NHTSA vPIC VIN decode; it must answer "unknown" if unsure, never guess.
-4. Map each code to: system (engine, transmission, brakes/ABS, airbag/SRS, electrical, emissions, body), severity (minor, moderate, major, critical) and a repair cost band low/high. Table codes use the costs in `dtc_codes`; OpenAI-explained codes use a cost band per severity from the config object.
-5. Output per vehicle (plus `vehicle` from vPIC and a `reason` for the triage):
-```json
-{
-  "codes": [{"code": "P0300", "description": "Random/multiple cylinder misfire", "system": "engine",
-             "severity": "major", "cost_low": 150, "cost_high": 2500, "source": "generic_table"}],
-  "summary": {"count": 1, "worst_severity": "major", "cost_low": 150, "cost_high": 2500},
-  "triage": "full_inspection",
-  "reason": "1 code(s), none critical; inspection worth doing."
-}
-```
-6. Triage rule: if many codes or any critical ones (airbag deployed, transmission, major engine), set "triage": "skip_inspection_sell_as_is", because a full inspection isn't worth the time and money. Thresholds live in one config object (`CONFIG` at the top of `api/decode-codes.ts`).
-   Real quotes: a registry vehicle can carry `code_quotes` (`{"P0087": {"low": 4000, "high": 7500, "note": "..."}}`, migration `vehicles_code_quotes`); for that car they replace the table/OpenAI cost and the code's `source` is `quote`. The table costs are rough estimates until real quotes replace them.
-7. Code costs are added to the repair band; critical codes also widen the band like an unknown flag.
-9. Demo registry (the VIN → title bridge): Supabase table `vehicles` holds real VINs whose title a teammate verified by hand (`source`: `title_document`, `dealer_listing`, `online_listing`, `nmvtis_report`). RLS on, no policies, so only the server reads it. `GET /api/vehicle?vin=` returns `registered`, `title_status`, `title_state`, `source` (never odometer or notes); the page calls it to fill in the title. In `decode-codes`, a registry record wins over the seller's choice and the response says so in `title_source`. Load records from `data/vehicles.local.json` (gitignored; format in `data/vehicles.example.json`) with `npm run seed:vehicles`. Never commit real VINs. Label demo vehicles as verified or sample; never present a made-up VIN as a real car's history.
-8. Title status: entered by the seller on the page (no free API returns title brands by VIN; paid NMVTIS lookups are out of scope). Optional `title_status` in the request: `clean`, `salvage`, `rebuilt`, `flood`, `non_repairable`, `lemon`, `unknown` (default). It is echoed in the response; `flood` and `non_repairable` set triage to `skip_inspection_sell_as_is` (`CONFIG.triage.skipTitles`).
-
-## Repair band — built: `api/_lib/decision.ts` + `data/repair_costs.csv`
-Lookup table (CSV) of part x grade -> parts cost low/high, labor hours low/high, paint yes/no. Seller labor rate is an input.
-Repair band = sum of rows for flagged parts. If any flag is "unknown" or frame_suspected is true, widen the top of the band by a fixed amount and record the reason.
+## Repair estimate — built: `api/_lib/repair.ts` + `data/repair_costs.csv`, `POST /api/repair-estimate { grades, flags?, labor_rate? }`
+Lookup table (CSV) of part x grade -> parts cost low/high, labor hours low/high, paint yes/no. The seller's labor rate is an input.
+Estimate = sum of the rows for damaged parts, as a low-high range. Unchecked risks add a fixed allowance to the top of the range, each recorded with a reason and the check that would remove it.
 - `data/repair_costs.csv` holds rough, unverified industry ranges for a generic passenger vehicle. Replace with shop quotes when available.
 - Paint adds `paintPerPanel` per painted panel. `airbags_deployed: true` adds an interior replacement if interior isn't already graded replace.
-- Widening amounts (top of band only), each recorded with a reason and a check: frame suspected, airbags unknown, fluid leak unknown, each critical fault code, and 5+ parts not visible. Unknown parts are not costed otherwise.
-- Every number is in `DECISION_CONFIG` at the top of `api/_lib/decision.ts`. `vercel.json` bundles the CSV with `api/decide.ts`.
-
-## As-is band
-Hand-entered per vehicle: 5-10 comparable sold salvage lots + one clean wholesale value with a condition haircut. Band = low/high of comps.
-- Entered on the page, or stored per VIN in the registry (`clean_wholesale`, `salvage_comps`, `values_note`) and filled in automatically. At least 3 comps are required.
-- After-repair value = clean wholesale × (1 − condition haircut 5–12%) × (1 − title discount). Title discounts: rebuilt/salvage 20–40% (salvage becomes rebuilt after repair), flood 30–50%, lemon 15–30%, unknown 0–20%. `non_repairable` means fixing isn't allowed: verdict `not_fixable`.
-
-## Decision
-- fix_net = after_repair_value - repair_band - holding_days * daily_cost - selling_fee
-- as_is_net = as_is_band - fee - transport
-- Sample each band 1000 times (uniform low..high), count how often fix wins.
-- >70%: "fix". <30%: "sell as-is". Otherwise "too close to call" + the check that would change it most (usually the unknown flag).
-- Built: `POST /api/decide` (no AI, deterministic: seeded random, separate streams for fix and as-is). Returns repair band with lines and widenings, after-repair value, as-is band, both nets as P10/P50/P90, days, `p_fix`, `verdict` (`fix`, `sell_as_is`, `too_close`, `not_fixable`, or null with `missing`), and `check` for close calls (the widening or unknown title whose resolution moves `p_fix` most).
-- Fault-code triage (`full_inspection` / `skip_inspection_sell_as_is`) is only a note about whether a full inspection is worth paying for. It is not the recommendation; the page never shows it as the headline.
+- Allowances: frame suspected, airbags unknown, fluid leak unknown, and 5+ parts not described. Unknown parts are not costed otherwise.
+- Every number is in `REPAIR_CONFIG` at the top of `api/_lib/repair.ts`.
+- It prices the repair only. Whether repairing pays, and every market value, fee and discount, is the engine's (`engine/config/assumptions.yaml`). The page passes this estimate to `/api/route` as `repair`.
 
 ## UI (Lovable)
-Upload photos + VIN -> part grid with grade and source photo -> both nets with bands and days -> recommendation -> reviewer toggle to change any grade and recompute live.
-- Working version: `public/index.html` + `public/app.js` + `public/app.css` (the Vercel demo). One column (the team prefers it): app bar, heading, vehicle form, then the result (vehicle header with title badge, recommendation, both net ranges, then stacked sections for where the numbers come from, condition, fault codes, API response), then a note on verified vehicles. Clicking a part grade or a flag cycles it and calls `/api/decide` again. The Lovable app can call the same four endpoints.
+VIN + description -> where to send it -> every allowed exit with its net range -> repair or sell as-is -> repair estimate -> part grid with grades -> what was read from the description. A reviewer can change any grade or flag and everything recomputes.
+- Working version: `public/index.html` + `public/app.js` + `public/app.css` (the demo page). One column (the team prefers it): app bar, heading, vehicle form, then the result (vehicle header with title badge, the marketplace, every allowed exit, repair or sell as-is, repair estimate, condition, what was read from the description, API response), then sample vehicles. Clicking a part grade or a flag cycles it and calls `/api/repair-estimate` and `/api/route` again. When the engine's confidence is `insufficient` the page says "Not enough to go on" and names no marketplace. The Lovable app can call the same endpoints.
 - Look: tool-like, in ACV's palette and type (orange #D34319 actions, #121212 ink, gray scale, Roboto, 4px radii). No marketing hero, no decorative copy. Underscope branding only: never use ACV's logo or present it as an ACV product; keep the footer line saying it's an independent project.
-- Integration points (`public/integrate.html`): deep links (`/?vin=&codes=&title=&clean=&comps=&run=1`, `/?sample=<id>`; every result has Copy link), a bookmarklet that finds a VIN on any listing page (validated by check digit) and opens a check, and the four CORS-open APIs. No access to ACV systems is used; CLAUDE.md's "no ACV integration" still holds.
-- Sample vehicles: `public/demo_vehicles.json` (made-up VINs, one per verdict) is a test fixture for `test:decision`, not listed on the page (`/?sample=<id>` still opens one). The page uses real vehicles from the registry.
+- Deep links: `/?vin=&notes=&run=1` with one parameter per box, and `/?sample=<id>`; every result has Copy link. The separate integration page and its VIN bookmarklet were removed on 2026-11-17 to keep the demo to one page. No access to ACV systems is used; "no ACV integration" still holds.
+- Sample vehicles: `public/demo_vehicles.json` (made-up VINs). Each has `fields` (the required boxes) and `notes` (the general box), which the page runs through the parser, and the title, grades, flags and values the parser must read from them.
 
 ## Test
-Run all 20 vehicles; compare model grade vs our grade per part in a sheet. Report agreement % and expensive misses (model "fine" where truth is "replace").
-Photos: `npm run score:photos -- --template` writes a blank `truth.json` per `test_vehicles/<id>/` (label blind, without looking at the model's answer); `npm run test:photos` (with `npm run dev`) writes `grade.json`; `npm run score:photos` writes `test_vehicles/ACCURACY.md` with parts right, recall, precision, expensive misses, wrong side and a confusion table. Quote recall and expensive misses, not only "parts right" (most parts are fine, so it runs high). Karthik's last hand-checked run on 24 Copart lots: gpt-5.5 ~92% parts right, ~82% recall, ~89% precision, 0 wrong side.
-Fault codes: `npm run test:codes` runs the 10 demo scans and checks each triage.
-Decision: `npm run test:decision` runs every vehicle in `public/demo_vehicles.json` and checks it gets its `expect` verdict.
+`npm run test:samples` runs every vehicle in `public/demo_vehicles.json` the way the page does: boxes and notes -> one text (`compose`) -> rules reader -> repair estimate. It fails if the reader reads anything other than the sample's title, grades, flags and values, or if the repair estimate differs from the sample's `repair` (`-- --write` records new ones). The marketplace decision is tested in `engine/tests`. CI (`.github/workflows/ci.yml`) runs all of it.
 
 ## Do NOT build
-Fine-tuning, dataset downloads, scraping, logins, payments, extra database tables beyond what a step needs, VIN enrichment beyond the free NHTSA vPIC call, any Copart/ACV integration.
-Exception: market fit (`api/market-fit.ts`, ACV vs Copart scorecard in `docs/channel-scorecard.md`) may run one Firecrawl search of public listings (`FIRECRAWL_API_KEY`); never ACV, Copart or other auction sites.
+Fine-tuning, dataset downloads, scraping, logins, payments, paid APIs or lookups, a database, VIN enrichment beyond the free NHTSA vPIC call, any Copart/ACV integration.
+
+One exception (post-hackathon, approved 2026-11-08): the **reader fine-tune** in `reader/model/`. Why: gpt-4o-mini shuts down 2027-01-14, and OpenAI ends self-serve fine-tuning on 2027-01-06.
+- It trains an open-weights model with LoRA (Apache or MIT license) to read the seller's description into the reader's contract (`reader/src/model.ts`). Locally that is Qwen3-1.7B, the size the 8 GB dev GPU can train and serve; a 4B-8B model on a larger GPU if the gates need it.
+- It serves the model behind an OpenAI-compatible endpoint, selected with `PARSER_BASE_URL` + `PARSER_MODEL` (`reader/model/serve.py` locally, vLLM in production).
+- State on 2026-11-16: the run1 adapter was trained on the old 19-field answer; no model is trained on the new contract yet. Four training sets and a 191-note test set are prepared for a comparison of five runs against the free rules baseline (`reader/model/README.md`). Training starts only when the user says so.
+- Allowed for it: synthetic notes and existing published datasets after a license check (never scraped by us). No paid API: the OpenAI teacher-labeling script was removed with the no-paid-services decision.
+- Training dependencies live only in `reader/model/requirements.txt`, never in the root `requirements.txt` (that file deploys `api/route.py`).
+- The reader model never picks the marketplace; it only extracts. Lane prices stay with per-lane price models.
+- `verifyAnswer` stays in front of every model's output, and the model never overrides the rules silently: `merge()` records every difference in `conflicts`.
+
+Second exception (approved 2026-11-16): the **router model** in `engine/` picks ACV or Copart.
+- It is a small scikit-learn classifier (no GPU, no paid API), trained only on cars the engine generates and labels with its own simulation, because no open data shows the best channel for a car. Never describe it as trained on market data.
+- The title rules and the seller's lane limit always come before it, and the simulation checks it (see "Routing").
+- To train it on real outcomes it needs sold prices with both marketplaces' prices known or estimable; that data comes only from a partnership, never from scraping.
+- `scikit-learn` is in the root `requirements.txt` because `api/route.py` loads the model; without it the simulation decides.
 
 ## Known limitation
-The vision model is weak on dents/scratches, strong on broken glass, missing bumpers, flat tires. Pick demo vehicles where the decision depends on obvious damage.
+The parser only understands what its rules cover. It does not read general statements ("front end damage"), mechanical faults, or fault codes; those land in `additional`. Wording outside its vocabulary is missed, not guessed, so check "Read so far" before running.
 
 ## Working style
 - Keep code short and readable; one file per step where possible.
 - Ask before adding dependencies.
-- Don't open or read images in test_vehicles/ unless asked.

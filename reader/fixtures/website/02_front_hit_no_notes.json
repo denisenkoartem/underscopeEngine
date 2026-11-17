@@ -1,0 +1,133 @@
+{
+  "vin": "1FTEW1EP6JKD12345",
+  "vehicle": {
+    "year": "2018",
+    "make": "FORD",
+    "model": "F-150",
+    "engine": null
+  },
+  "title_status": "clean",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "replace"
+    },
+    {
+      "part": "hood",
+      "grade": "replace"
+    },
+    {
+      "part": "grille",
+      "grade": "replace"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "replace"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "windshield",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "repairable"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "fine"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "fine"
+    },
+    {
+      "part": "roof",
+      "grade": "fine"
+    },
+    {
+      "part": "interior",
+      "grade": "fine"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "unknown"
+    },
+    {
+      "part": "underbody",
+      "grade": "unknown"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": false,
+    "frame_suspected": false,
+    "fluid_leak": "unknown"
+  },
+  "codes": [],
+  "values": {
+    "clean_wholesale": 24500,
+    "salvage_comps": [
+      9800,
+      10400,
+      11200,
+      11900,
+      12600,
+      13100
+    ]
+  },
+  "repair": {
+    "low": 3100,
+    "high": 6900
+  }
+}

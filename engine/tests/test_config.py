@@ -55,3 +55,14 @@ def test_nested_tables_inherit_unit_checks():
 def test_rejects_missing_panel_or_path():
     assert "roof" in _broken(lambda d: d["repair_cost"]["panel_base_cents"].pop("roof"))
     assert "part_out" in _broken(lambda d: d["timing"]["days_to_sell"].pop("part_out"))
+
+
+def test_rejects_bad_lanes_and_routing():
+    data = copy.deepcopy(default_assumptions().data)
+    data["lanes"]["by_title"]["clean"] = ["acv_somewhere"]
+    with pytest.raises(ValueError, match="lanes.by_title.clean"):
+        Assumptions(data)
+    data = copy.deepcopy(default_assumptions().data)
+    data["routing"]["clear_below"] = 0.8
+    with pytest.raises(ValueError, match="routing"):
+        Assumptions(data)

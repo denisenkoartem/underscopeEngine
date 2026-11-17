@@ -11,10 +11,12 @@ import yaml
 from underscope.models import DamageType, Panel, TitleStatus
 from underscope.models import Path as DispPath
 
-DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "assumptions.yaml"
+ROOT = Path(__file__).resolve().parents[2]   # the engine/ folder
+DEFAULT_PATH = ROOT / "config" / "assumptions.yaml"
 REQUIRED_SECTIONS = (
     "base_value", "repair_cost", "market", "fees", "transport", "timing", "title",
-    "total_loss", "parts", "hidden_damage", "simulation",
+    "total_loss", "parts", "hidden_damage", "simulation", "lanes", "routing", "condition",
+    "grades", "router_training", "defaults", "damage_areas", "signals",
 )  # fmt: skip
 
 
@@ -81,6 +83,13 @@ def _schema_problems(data: dict[str, Any]) -> list[str]:
             out.append(f"{section}.{table}: missing {', '.join(missing)}")
     if data.get("simulation", {}).get("draws", 0) <= 0:
         out.append("simulation.draws: must be positive")
+    paths = {p.value for p in DispPath}
+    for title, allowed in (data.get("lanes", {}).get("by_title") or {}).items():
+        if not allowed or not set(allowed) <= paths:
+            out.append(f"lanes.by_title.{title}: must be a non-empty list of {sorted(paths)}")
+    r = data.get("routing", {})
+    if not 0 <= r.get("clear_below", 0) < r.get("clear_above", 1) <= 1:
+        out.append("routing: need 0 <= clear_below < clear_above <= 1")
     return out
 
 

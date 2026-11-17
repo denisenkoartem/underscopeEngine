@@ -1,0 +1,143 @@
+{
+  "vin": "1FTYR2CM1KKA12345",
+  "vehicle": {
+    "year": "2019",
+    "make": "FORD",
+    "model": "Transit",
+    "engine": null
+  },
+  "title_status": "non_repairable",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "hood",
+      "grade": "fine"
+    },
+    {
+      "part": "grille",
+      "grade": "fine"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "fine"
+    },
+    {
+      "part": "windshield",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "fine"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "replace"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "replace"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "replace"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "fine"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "fine"
+    },
+    {
+      "part": "roof",
+      "grade": "repairable"
+    },
+    {
+      "part": "interior",
+      "grade": "fine"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "fine"
+    },
+    {
+      "part": "underbody",
+      "grade": "fine"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": "unknown",
+    "frame_suspected": true,
+    "fluid_leak": false
+  },
+  "codes": [
+    {
+      "code": "C0035",
+      "description": "Left front wheel speed sensor circuit",
+      "system": "brakes/ABS",
+      "severity": "minor",
+      "cost_low": 80,
+      "cost_high": 300,
+      "source": "generic_table"
+    }
+  ],
+  "values": {
+    "clean_wholesale": 26000,
+    "salvage_comps": [
+      6400,
+      7100,
+      7800,
+      8200,
+      8900
+    ]
+  },
+  "repair": {
+    "low": 7400,
+    "high": 14900
+  },
+  "notes": "Parts only title, it rolled over on the highway. Doesn't run."
+}

@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "Outcome": {
+      "description": "What the car netted, in dollars after fees, transport and holding.",
+      "properties": {
+        "acv_net": {
+          "title": "Acv Net",
+          "type": "number"
+        },
+        "copart_net": {
+          "title": "Copart Net",
+          "type": "number"
+        },
+        "p_acv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Acv"
+        }
+      },
+      "required": [
+        "acv_net",
+        "copart_net"
+      ],
+      "title": "Outcome",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One line of the .jsonl file train-router --data reads: the reader's Assessment for a car and what it netted on each marketplace, in dollars after fees, transport and holding. source is \"recorded\" for a real car and \"simulation\" for a made-up one labelled by the engine.",
+  "properties": {
+    "assessment": {
+      "additionalProperties": true,
+      "title": "Assessment",
+      "type": "object"
+    },
+    "level": {
+      "anyOf": [
+        {
+          "enum": [
+            "full",
+            "reduced",
+            "low"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Level"
+    },
+    "outcome": {
+      "$ref": "#/$defs/Outcome"
+    },
+    "source": {
+      "default": "recorded",
+      "enum": [
+        "simulation",
+        "recorded"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "assessment",
+    "outcome"
+  ],
+  "title": "Router training row",
+  "type": "object"
+}

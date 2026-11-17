@@ -268,10 +268,46 @@ def test_adjuster_answer_says_total_loss_or_not():
 
 def test_adjuster_borderline_answer_is_not_contradictory():
     import json
+    from pathlib import Path as FsPath
 
-    from underscope.data import FIXTURE_DIR
-
-    v = VehicleRecord(**json.loads((FIXTURE_DIR / "borderline_writeoff.json").read_text()))
+    fixture = FsPath(__file__).parent / "fixtures" / "borderline_writeoff.json"
+    v = VehicleRecord(**json.loads(fixture.read_text()))
     r = evaluate(v, v.findings)
     assert r.answer.startswith("Borderline total loss")
     assert "below the 75%" in r.answer
+
+
+def test_destination_share_compares_best_acv_exit_with_best_other():
+    from underscope.decision import destination_share
+
+    nets = {Path.REPAIR_THEN_ACV: np.array([5, 0, 0, 2]),
+            Path.ACV_AS_IS: np.array([0, 5, 0, 0]),
+            Path.COPART_SALVAGE: np.array([1, 1, 1, 1]),
+            Path.PART_OUT: np.array([0, 0, 0, 9])}  # fmt: skip
+    # ACV's best exit wins draws 0 and 1; in draw 3 it beats Copart but not part-out, which
+    # only counts when it's allowed.
+    assert destination_share(nets, PATHS) == pytest.approx(0.5)
+    acv_or_copart = (Path.REPAIR_THEN_ACV, Path.ACV_AS_IS, Path.COPART_SALVAGE)
+    assert destination_share(nets, acv_or_copart) == pytest.approx(0.75)
+    assert destination_share(nets, (Path.COPART_SALVAGE,)) == 0.0
+    assert destination_share(nets, (Path.ACV_AS_IS,)) == 1.0
+
+
+def test_evaluate_ranks_only_allowed_paths():
+    v, fi = veh(), [f("frame", "crush", 1.0), f("roof", "crush", 0.9)]
+    no_parts = (Path.REPAIR_THEN_ACV, Path.ACV_AS_IS, Path.COPART_SALVAGE)
+    r = evaluate(v, fi, paths=no_parts)
+    assert [o.path for o in r.options] and {o.path for o in r.options} == set(no_parts)
+    assert r.winner != Path.PART_OUT
+    only = evaluate(v, fi, paths=(Path.COPART_SALVAGE,))
+    assert only.winner == Path.COPART_SALVAGE and len(only.options) == 1
+    assert not only.needs_human_review and not only.flip_conditions
+    assert "Only allowed path" in only.explanation
+    with pytest.raises(ValueError):
+        evaluate(v, fi, paths=())
+
+
+def test_default_paths_unchanged():
+    # The CLI personas still rank all four exits.
+    r = evaluate(veh(), [f()])
+    assert {o.path for o in r.options} == set(PATHS)

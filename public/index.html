@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Underscope: fix or sell as-is</title>
-<meta name="description" content="Photos, fault codes and title in; two net ranges and a fix-or-sell-as-is recommendation out.">
+<meta name="description" content="A VIN and a description in; where to send the car and a fix-or-sell-as-is recommendation out.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
@@ -13,17 +13,13 @@
 <body>
 <header class="appbar"><div class="in">
   <a class="logo" href="/"><span class="logo-mark" aria-hidden="true"></span>Underscope</a>
-  <nav class="nav" aria-label="Main">
-    <a href="/" aria-current="page">Check a vehicle</a>
-    <a href="/integrate.html">Integrate</a>
-  </nav>
   <span class="tag-built">Built for ACV at UB Hacking</span>
 </div></header>
 
 <div class="page">
   <div class="page-head">
     <h1>Where should this car go?</h1>
-    <p class="lede">Add the VIN, photos and scan-tool codes. Underscope prices the damage, compares repairing and reselling on ACV, selling as-is on ACV, salvage on Copart and parting it out, and tells you which nets the most.</p>
+    <p class="lede">Add the VIN, answer the required questions and add anything else you know. Underscope prices the damage, compares repairing and reselling on ACV, selling as-is on ACV, and salvage on Copart, and tells you which nets the most.</p>
   </div>
 
   <section class="panel intake" aria-label="Vehicle intake">
@@ -36,78 +32,75 @@
           <div class="hint" id="vin-hint">17 characters, on the dash or the driver's door jamb.</div>
         </div>
 
-        <fieldset>
-          <legend class="label">Title</legend>
-          <div class="seg">
-            <label><input type="radio" name="title" value="clean"><span>Clean</span></label>
-            <label><input type="radio" name="title" value="salvage"><span>Salvage</span></label>
-            <label><input type="radio" name="title" value="rebuilt"><span>Rebuilt</span></label>
-            <label><input type="radio" name="title" value="flood"><span>Flood</span></label>
-            <label><input type="radio" name="title" value="non_repairable"><span>Non-repairable</span></label>
-            <label><input type="radio" name="title" value="lemon"><span>Lemon</span></label>
-            <label><input type="radio" name="title" value="unknown" checked><span>Not sure</span></label>
-          </div>
-          <div class="hint" id="title-hint"></div>
-        </fieldset>
-
-        <div class="two">
-        <fieldset>
-          <legend class="label">Does it drive?</legend>
-          <div class="seg">
-            <label><input type="radio" name="drivable" value="yes"><span>Yes</span></label>
-            <label><input type="radio" name="drivable" value="no"><span>No</span></label>
-            <label><input type="radio" name="drivable" value="unknown" checked><span>Not sure</span></label>
-          </div>
-          <div class="hint">Counts toward ACV vs Copart. Photos can't tell.</div>
-        </fieldset>
-        <div class="field">
-          <label for="state">State</label>
-          <select id="state" class="select"><option value="">Not set</option><option>AL</option><option>AK</option><option>AZ</option><option>AR</option><option>CA</option><option>CO</option><option>CT</option><option>DE</option><option>DC</option><option>FL</option><option>GA</option><option>HI</option><option>ID</option><option>IL</option><option>IN</option><option>IA</option><option>KS</option><option>KY</option><option>LA</option><option>ME</option><option>MD</option><option>MA</option><option>MI</option><option>MN</option><option>MS</option><option>MO</option><option>MT</option><option>NE</option><option>NV</option><option>NH</option><option>NJ</option><option>NM</option><option>NY</option><option>NC</option><option>ND</option><option>OH</option><option>OK</option><option>OR</option><option>PA</option><option>RI</option><option>SC</option><option>SD</option><option>TN</option><option>TX</option><option>UT</option><option>VT</option><option>VA</option><option>WA</option><option>WV</option><option>WI</option><option>WY</option></select>
-          <div class="hint">Where the car is. Used to check for local dealer listings (market fit).</div>
+        <p class="form-lead">Fill in every required box. If you do not know an answer, write "not sure": the answer will be less precise, not blocked.</p>
+        <div class="box-grid">
+        <div class="field box">
+          <label for="f-title">Title <span class="req">required</span></label>
+          <div class="hint">Clean, salvage, rebuilt, flood, non-repairable or lemon.</div>
+          <input id="f-title" class="text" data-box="title" autocomplete="off" placeholder="Clean, in hand, no lien">
+          <div class="box-status" id="s-title" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-mileage">Mileage <span class="req">required</span></label>
+          <div class="hint">What the odometer shows.</div>
+          <input id="f-mileage" class="text" data-box="mileage" autocomplete="off" placeholder="84,000 actual miles">
+          <div class="box-status" id="s-mileage" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-clean">Clean wholesale value <span class="req">required</span></label>
+          <div class="hint">Same year, model and mileage, no damage.</div>
+          <input id="f-clean" class="text" data-box="clean" autocomplete="off" placeholder="$24,500">
+          <div class="box-status" id="s-clean" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-comps">Sold prices of similar damaged vehicles <span class="req">required</span></label>
+          <div class="hint">At least 3 prices.</div>
+          <input id="f-comps" class="text" data-box="comps" autocomplete="off" placeholder="9800, 10400, 11200">
+          <div class="box-status" id="s-comps" aria-live="polite"></div>
+        </div>
+        <div class="field box wide">
+          <label for="f-damage">What is damaged <span class="req">required</span></label>
+          <div class="hint">Part by part, with the side (driver or passenger). Say whether the rest is fine, or write "no damage".</div>
+          <textarea id="f-damage" class="text" rows="4" data-box="damage" placeholder="Front bumper, hood and grille need replacing. Driver headlight is smashed and the driver fender is dented. Everything else is fine."></textarea>
+          <div class="box-status" id="s-damage" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-airbags">Did the airbags deploy? <span class="req">required</span></label>
+          <input id="f-airbags" class="text" data-box="airbags" autocomplete="off" placeholder="No">
+          <div class="box-status" id="s-airbags" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-frame">Is the frame damaged? <span class="req">required</span></label>
+          <input id="f-frame" class="text" data-box="frame" autocomplete="off" placeholder="No">
+          <div class="box-status" id="s-frame" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-leaks">Is anything leaking? <span class="req">required</span></label>
+          <input id="f-leaks" class="text" data-box="leaks" autocomplete="off" placeholder="Not sure">
+          <div class="box-status" id="s-leaks" aria-live="polite"></div>
         </div>
         </div>
 
         <div class="field">
-          <label for="mileage">Mileage</label>
-          <div class="money" style="max-width:220px"><input id="mileage" inputmode="numeric" autocomplete="off" placeholder="115000" style="padding-left:10px"><span style="padding:0 10px 0 0">mi</span></div>
-          <div class="hint" id="mileage-hint">From the dash. Left blank, it's read from an odometer photo if there is one.</div>
+          <label for="notes">Anything else about the vehicle</label>
+          <div class="hint ask">Optional, in your own words. Each of these makes the answer more precise:
+            <ul>
+              <li>who is selling (dealer, insurer, fleet, lender or private owner) and the state the vehicle is in</li>
+              <li>whether it runs and drives, whether the keys are with it, and how the engine and transmission are</li>
+              <li>where it was hit, any flood or fire signs, and whether the catalytic converter is there</li>
+              <li>a repair quote if you have one, the lowest price you would accept, and any deadline or storage fees</li>
+              <li>warning lights, fault codes, noises, what was already repaired</li>
+            </ul>
+            <span id="model-note"></span></div>
+          <textarea id="notes" class="text" rows="6" placeholder="Dealer trade-in, located in NY. Runs and drives, two keys. Front hit. No flood or fire signs, catalytic converter is there. Shop quoted $4,200. Won't take less than $9,000."></textarea>
+          <div class="read" id="read" aria-live="polite"></div>
         </div>
 
-        <div class="field">
-          <span class="label" id="photos-label">Photos</span>
-          <label class="drop" id="drop">
-            <input id="photo-input" type="file" accept="image/*" multiple hidden>
-            <span class="drop-main">Drop photos or <u>browse</u></span>
-            <span class="drop-sub">All sides, interior, engine bay, underbody. Up to 30.</span>
-          </label>
-          <ol class="thumbs" id="thumbs" aria-labelledby="photos-label"></ol>
-          <div class="hint" id="photos-hint"></div>
+        <div class="field" style="max-width:220px">
+          <label for="labor-rate">Shop labor rate ($/hour)</label>
+          <input id="labor-rate" class="text" inputmode="numeric" value="95" autocomplete="off">
+          <div class="hint">Used for the repair estimate.</div>
         </div>
-
-        <div class="field">
-          <span class="label" id="codes-label">Trouble codes</span>
-          <div class="tags" id="codes"><input id="code-input" autocomplete="off" spellcheck="false" placeholder="P0300" aria-labelledby="codes-label"></div>
-          <div class="hint" id="codes-hint"></div>
-        </div>
-
-        <p class="subhead">Market values</p>
-        <div class="two">
-        <div class="field">
-          <label for="clean">Clean wholesale value</label>
-          <div class="money"><span>$</span><input id="clean" inputmode="numeric" autocomplete="off" placeholder="18000"></div>
-          <div class="hint" id="clean-hint">Same year, model and mileage, no damage, clean title.</div>
-        </div>
-        <div class="field">
-          <span class="label" id="comps-label">Salvage comps (sold prices)</span>
-          <div class="tags" id="comps"><input id="comp-input" inputmode="numeric" autocomplete="off" placeholder="6500" aria-labelledby="comps-label"></div>
-          <div class="hint" id="comps-hint"></div>
-        </div>
-        </div>
-
-        <details class="assume">
-          <summary>Fees, labor and timing</summary>
-          <div class="assume-grid" id="assume"></div>
-        </details>
       </div>
     </form>
     <div class="intake-foot">
@@ -119,9 +112,12 @@
   <section class="panel result" id="result" hidden aria-live="polite"></section>
 
   <section class="panel empty" id="empty">
-    <h2>Verified vehicles</h2>
-    <p>For a car in the verified registry, typing its VIN fills in the title, clean wholesale value and salvage comps. Add photos and codes, then run the check.</p>
-    <p style="margin:0;font-size:13.5px">Looking at a listing somewhere else? The <a href="/integrate.html#bookmarklet">bookmarklet</a> pulls the VIN off the page and opens it here.</p>
+    <h2>Sample vehicles</h2>
+    <p>Made-up VINs, descriptions and values.</p>
+    <table class="sample-table">
+      <thead><tr><th>Vehicle</th><th>VIN</th><th>Title</th><th></th></tr></thead>
+      <tbody id="samples"></tbody>
+    </table>
   </section>
 </div>
 

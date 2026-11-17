@@ -5,7 +5,6 @@ import itertools
 import pytest
 
 from underscope.config import default_assumptions
-from underscope.data import generate_synthetic
 from underscope.decision import PATHS, evaluate, simulate
 from underscope.models import DamageFinding, DamageType, Panel, Path, VehicleRecord
 from underscope.valuation import value_vehicle
@@ -47,11 +46,11 @@ def test_more_severity_never_raises_repair_net(panel, t):
     assert nets == sorted(nets, reverse=True)
 
 
-def test_recommendations_well_formed_on_synthetic_sample():
-    for row in generate_synthetic(30, seed=21):
-        v = VehicleRecord(**row["vehicle"])
-        r = evaluate(v, v.findings)
-        assert r == evaluate(v, v.findings)  # deterministic
+def test_recommendations_well_formed_across_the_damage_grid():
+    for (panel, t), sev in zip(GRID[::3], itertools.cycle((0.15, 0.45, 0.85)), strict=False):
+        v, findings = veh(), [f(panel, t, sev)]
+        r = evaluate(v, findings)
+        assert r == evaluate(v, findings)  # deterministic
         assert {o.path for o in r.options} == set(PATHS)
         assert r.winner == r.options[0].path
         for o in r.options:

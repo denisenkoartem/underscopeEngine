@@ -2,3 +2,4 @@
 pydantic>=2
 numpy
 pyyaml
+scikit-learn  # the router model (engine/models/router.joblib); without it the simulation decides

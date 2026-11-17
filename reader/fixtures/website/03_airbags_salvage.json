@@ -1,0 +1,161 @@
+{
+  "vin": "1GCWGAFP4J1123456",
+  "vehicle": {
+    "year": "2018",
+    "make": "CHEVROLET",
+    "model": "Express",
+    "engine": null
+  },
+  "title_status": "salvage",
+  "grades": [
+    {
+      "part": "front_bumper",
+      "grade": "replace"
+    },
+    {
+      "part": "hood",
+      "grade": "replace"
+    },
+    {
+      "part": "grille",
+      "grade": "replace"
+    },
+    {
+      "part": "left_headlight",
+      "grade": "replace"
+    },
+    {
+      "part": "right_headlight",
+      "grade": "replace"
+    },
+    {
+      "part": "windshield",
+      "grade": "replace"
+    },
+    {
+      "part": "left_front_fender",
+      "grade": "replace"
+    },
+    {
+      "part": "right_front_fender",
+      "grade": "repairable"
+    },
+    {
+      "part": "left_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_front_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_door",
+      "grade": "fine"
+    },
+    {
+      "part": "left_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "right_mirror",
+      "grade": "fine"
+    },
+    {
+      "part": "left_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "right_rear_quarter",
+      "grade": "fine"
+    },
+    {
+      "part": "tailgate_or_rear_doors",
+      "grade": "fine"
+    },
+    {
+      "part": "rear_bumper",
+      "grade": "fine"
+    },
+    {
+      "part": "left_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "right_taillight",
+      "grade": "fine"
+    },
+    {
+      "part": "wheels_and_tires",
+      "grade": "fine"
+    },
+    {
+      "part": "roof",
+      "grade": "fine"
+    },
+    {
+      "part": "interior",
+      "grade": "replace"
+    },
+    {
+      "part": "engine_bay",
+      "grade": "repairable"
+    },
+    {
+      "part": "underbody",
+      "grade": "unknown"
+    }
+  ],
+  "flags": {
+    "airbags_deployed": true,
+    "frame_suspected": true,
+    "fluid_leak": "unknown"
+  },
+  "codes": [
+    {
+      "code": "B0001",
+      "description": "Driver frontal stage 1 deployment control",
+      "system": "airbag/SRS",
+      "severity": "critical",
+      "cost_low": 1000,
+      "cost_high": 4000,
+      "source": "generic_table"
+    },
+    {
+      "code": "B0010",
+      "description": "Passenger frontal stage 1 deployment control",
+      "system": "airbag/SRS",
+      "severity": "critical",
+      "cost_low": 1000,
+      "cost_high": 4000,
+      "source": "generic_table"
+    },
+    {
+      "code": "U0151",
+      "description": "Lost communication with restraints control module",
+      "system": "airbag/SRS",
+      "severity": "major",
+      "cost_low": 150,
+      "cost_high": 1200,
+      "source": "generic_table"
+    }
+  ],
+  "values": {
+    "clean_wholesale": 19000,
+    "salvage_comps": [
+      5200,
+      5900,
+      6300,
+      6800,
+      7400
+    ]
+  },
+  "repair": {
+    "low": 9800,
+    "high": 17400
+  },
+  "notes": "Both front airbags deployed and the frame is bent on the driver side. Won't start after the hit. Salvage auction only."
+}
