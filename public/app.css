@@ -278,3 +278,15 @@ footer { max-width: 880px; margin: 0 auto; padding: 8px 20px 28px; color: var(--
 .read ul { margin: 0 0 0 18px; padding: 0; }
 .read .bad { color: var(--orange, #D34319); }
 .read .verified { color: var(--green); font-weight: 500; }
+
+/* Required boxes: one per fact the decision needs */
+.form-lead { margin: 0 0 14px; font-size: 13.5px; color: var(--ink-2); }
+.box-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.box-grid .wide { grid-column: 1 / -1; }
+.box .hint { margin: -2px 0 6px; min-height: 0; }
+.req { margin-left: 4px; font-weight: 400; font-size: 11.5px; color: var(--steel); }
+.box-status { margin-top: 4px; min-height: 1.3em; font-size: 12.5px; color: var(--steel); }
+.box-status.ok { color: var(--green); font-weight: 500; }
+.box-status.warn, .box-status.bad { color: var(--red); }
+.box.bad .text { border-color: var(--red); }
+@media (max-width: 560px) { .box-grid { grid-template-columns: 1fr; } }

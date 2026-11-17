@@ -2,7 +2,7 @@
 
 Body: the reader's Assessment (reader/src/contract.ts; schema in
 engine/contracts/assessment.schema.json) plus the decoded `vehicle` and the page's `repair`
-estimate from /api/decide. Every key is optional and unknown keys are ignored.
+estimate from /api/repair-estimate. Every key is optional and unknown keys are ignored.
 Returns the marketplace (ACV or Copart), p_acv (chance ACV's best exit nets more than Copart),
 decided_by (title_rule | seller_limit | model | simulation), confidence (clear | close_call |
 insufficient), verify_first, the allowed exits ranked with P10/P50/P90 net proceeds, the excluded

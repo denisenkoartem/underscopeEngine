@@ -1,5 +1,5 @@
 {
-  "note": "Sample vehicles for the demo. VINs have valid check digits but are not real cars; the notes are made up and the values are illustrative, not market data. title_status, grades, flags and values are what the parser must read from the notes (npm run test:decision checks it).",
+  "note": "Sample vehicles for the demo. VINs have valid check digits but are not real cars; the notes are made up and the values are illustrative, not market data. title_status, grades, flags and values are what the parser must read from the notes (npm run test:samples checks it, with the repair estimate).",
   "vehicles": [
     {
       "id": "front-hit",
@@ -31,8 +31,21 @@
           13100
         ]
       },
-      "expect": "fix",
-      "notes": "Clean title, 84,000 miles, located in NY. Runs and drives. Front bumper, hood and grille need replacing. Driver headlight is smashed and the driver fender is dented. Underbody and engine bay not checked. Airbags did not deploy and there is no frame damage. Not sure about leaks. Everything else is fine. Clean wholesale value is $24,500. Similar damaged ones sold for 9800, 10400, 11200, 11900, 12600 and 13100."
+      "notes": "Located in NY. Runs and drives.",
+      "fields": {
+        "title": "Clean",
+        "mileage": "84,000 miles",
+        "clean": "$24,500",
+        "comps": "9800, 10400, 11200, 11900, 12600 and 13100",
+        "damage": "Front bumper, hood and grille need replacing. Driver headlight is smashed and the driver fender is dented. Underbody and engine bay not checked. Everything else is fine.",
+        "airbags": "No",
+        "frame": "No",
+        "leaks": "Not sure"
+      },
+      "repair": {
+        "low": 1869,
+        "high": 7076
+      }
     },
     {
       "id": "airbags",
@@ -67,8 +80,21 @@
           7400
         ]
       },
-      "expect": "sell_as_is",
-      "notes": "Salvage title, 112k miles, located in OH. Does not start. Front bumper, hood, grille and windshield need replacing. Both headlights are broken. Driver fender is crushed, passenger fender is dented. Airbags deployed and the interior needs replacing. Radiator is damaged. Frame is bent. Underbody not checked, not sure about leaks. Everything else is fine. Clean wholesale value $19,000. Comps: $5,200, $5,900, $6,300, $6,800, $7,400."
+      "notes": "Located in OH. Does not start.",
+      "fields": {
+        "title": "Salvage",
+        "mileage": "112k",
+        "clean": "$19,000",
+        "comps": "$5,200, $5,900, $6,300, $6,800, $7,400",
+        "damage": "Front bumper, hood, grille and windshield need replacing. Both headlights are broken. Driver fender is crushed, passenger fender is dented. The interior needs replacing. Radiator is damaged. Underbody not checked. Everything else is fine.",
+        "airbags": "Yes",
+        "frame": "Yes, bent",
+        "leaks": "Not sure"
+      },
+      "repair": {
+        "low": 5330,
+        "high": 22574
+      }
     },
     {
       "id": "rear-hit",
@@ -97,8 +123,21 @@
           26600
         ]
       },
-      "expect": "too_close",
-      "notes": "Not sure about the title. 141k miles, located in PA. Starts. Rear bumper is destroyed, tailgate is dented and the driver taillight is broken. Underbody not checked. Airbags did not deploy. Frame not checked, not sure about leaks. Everything else is fine. Wholesale value $33,500. Similar damaged ones sold for 20500, 21900, 22800, 24000, 25400, 26600."
+      "notes": "Located in PA. Starts.",
+      "fields": {
+        "title": "Not sure",
+        "mileage": "141k miles",
+        "clean": "$33,500",
+        "comps": "20500, 21900, 22800, 24000, 25400, 26600",
+        "damage": "Rear bumper is destroyed, tailgate is dented and the driver taillight is broken. Underbody not checked. Everything else is fine.",
+        "airbags": "No",
+        "frame": "Not checked",
+        "leaks": "Not sure"
+      },
+      "repair": {
+        "low": 1153,
+        "high": 3925
+      }
     },
     {
       "id": "flood",
@@ -125,8 +164,21 @@
           9700
         ]
       },
-      "expect": "sell_as_is",
-      "notes": "Flood title, 96k miles, located in FL. Runs and drives. Interior is stained, exhaust is rusted and the driver rear door has a dent. Airbags did not deploy, no frame damage, no leaks. Everything else is fine. Clean wholesale value $14,500. Comps: 7600, 8100, 8800, 9300, 9700."
+      "notes": "Located in FL. Runs and drives.",
+      "fields": {
+        "title": "Flood",
+        "mileage": "96k",
+        "clean": "$14,500",
+        "comps": "7600, 8100, 8800, 9300, 9700",
+        "damage": "Interior is stained, exhaust is rusted and the driver rear door has a dent. Everything else is fine.",
+        "airbags": "No",
+        "frame": "No",
+        "leaks": "No"
+      },
+      "repair": {
+        "low": 1210,
+        "high": 4340
+      }
     },
     {
       "id": "nonrepairable",
@@ -154,8 +206,21 @@
           8900
         ]
       },
-      "expect": "not_fixable",
-      "notes": "Non-repairable title, 58k miles, located in NJ. Driver door, driver rear door and driver quarter panel need replacing. Roof is dented. Frame is bent. Not sure about the airbags. No leaks. Everything else is fine. Clean wholesale value $26,000. Comps: 6400, 7100, 7800, 8200, 8900."
+      "notes": "Located in NJ.",
+      "fields": {
+        "title": "Non-repairable",
+        "mileage": "58k",
+        "clean": "$26,000",
+        "comps": "6400, 7100, 7800, 8200, 8900",
+        "damage": "Driver door, driver rear door and driver quarter panel need replacing. Roof is dented. Everything else is fine.",
+        "airbags": "Not sure",
+        "frame": "Yes, bent",
+        "leaks": "No"
+      },
+      "repair": {
+        "low": 3690,
+        "high": 15165
+      }
     }
   ]
 }

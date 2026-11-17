@@ -23,7 +23,7 @@
 <div class="page">
   <div class="page-head">
     <h1>Where should this car go?</h1>
-    <p class="lede">Add the VIN and describe the vehicle. Underscope prices the damage, compares repairing and reselling on ACV, selling as-is on ACV, salvage on Copart and parting it out, and tells you which nets the most.</p>
+    <p class="lede">Add the VIN, answer the required questions and add anything else you know. Underscope prices the damage, compares repairing and reselling on ACV, selling as-is on ACV, and salvage on Copart, and tells you which nets the most.</p>
   </div>
 
   <section class="panel intake" aria-label="Vehicle intake">
@@ -36,27 +36,75 @@
           <div class="hint" id="vin-hint">17 characters, on the dash or the driver's door jamb.</div>
         </div>
 
+        <p class="form-lead">Fill in every required box. If you do not know an answer, write "not sure": the answer will be less precise, not blocked.</p>
+        <div class="box-grid">
+        <div class="field box">
+          <label for="f-title">Title <span class="req">required</span></label>
+          <div class="hint">Clean, salvage, rebuilt, flood, non-repairable or lemon.</div>
+          <input id="f-title" class="text" data-box="title" autocomplete="off" placeholder="Clean, in hand, no lien">
+          <div class="box-status" id="s-title" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-mileage">Mileage <span class="req">required</span></label>
+          <div class="hint">What the odometer shows.</div>
+          <input id="f-mileage" class="text" data-box="mileage" autocomplete="off" placeholder="84,000 actual miles">
+          <div class="box-status" id="s-mileage" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-clean">Clean wholesale value <span class="req">required</span></label>
+          <div class="hint">Same year, model and mileage, no damage.</div>
+          <input id="f-clean" class="text" data-box="clean" autocomplete="off" placeholder="$24,500">
+          <div class="box-status" id="s-clean" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-comps">Sold prices of similar damaged vehicles <span class="req">required</span></label>
+          <div class="hint">At least 3 prices.</div>
+          <input id="f-comps" class="text" data-box="comps" autocomplete="off" placeholder="9800, 10400, 11200">
+          <div class="box-status" id="s-comps" aria-live="polite"></div>
+        </div>
+        <div class="field box wide">
+          <label for="f-damage">What is damaged <span class="req">required</span></label>
+          <div class="hint">Part by part, with the side (driver or passenger). Say whether the rest is fine, or write "no damage".</div>
+          <textarea id="f-damage" class="text" rows="4" data-box="damage" placeholder="Front bumper, hood and grille need replacing. Driver headlight is smashed and the driver fender is dented. Everything else is fine."></textarea>
+          <div class="box-status" id="s-damage" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-airbags">Did the airbags deploy? <span class="req">required</span></label>
+          <input id="f-airbags" class="text" data-box="airbags" autocomplete="off" placeholder="No">
+          <div class="box-status" id="s-airbags" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-frame">Is the frame damaged? <span class="req">required</span></label>
+          <input id="f-frame" class="text" data-box="frame" autocomplete="off" placeholder="No">
+          <div class="box-status" id="s-frame" aria-live="polite"></div>
+        </div>
+        <div class="field box">
+          <label for="f-leaks">Is anything leaking? <span class="req">required</span></label>
+          <input id="f-leaks" class="text" data-box="leaks" autocomplete="off" placeholder="Not sure">
+          <div class="box-status" id="s-leaks" aria-live="polite"></div>
+        </div>
+        </div>
+
         <div class="field">
-          <label for="notes">Describe the vehicle</label>
-          <div class="hint ask">Tell us, in your own words:
+          <label for="notes">Anything else about the vehicle</label>
+          <div class="hint ask">Optional, in your own words. Each of these makes the answer more precise:
             <ul>
-              <li>the title: clean, salvage, rebuilt, flood, non-repairable or lemon; whether you have it in hand; any open lien</li>
-              <li>the mileage and whether it is actual, the state it is in, and who is selling (dealer, insurer, fleet, lender or private owner)</li>
+              <li>who is selling (dealer, insurer, fleet, lender or private owner) and the state the vehicle is in</li>
               <li>whether it runs and drives, whether the keys are with it, and how the engine and transmission are</li>
-              <li>where it was hit, what is damaged part by part, and whether the rest is fine</li>
-              <li>whether the airbags deployed, the frame is damaged, anything is leaking, any flood or fire signs, and whether the catalytic converter is there</li>
-              <li>the clean wholesale value (same year, model and mileage, no damage) and what at least 3 similar damaged vehicles sold for</li>
+              <li>where it was hit, any flood or fire signs, and whether the catalytic converter is there</li>
               <li>a repair quote if you have one, the lowest price you would accept, and any deadline or storage fees</li>
+              <li>warning lights, fault codes, noises, what was already repaired</li>
             </ul>
-            Add anything else you know about it: warning lights, fault codes, noises, what was already repaired.</div>
-          <textarea id="notes" class="text" rows="11" placeholder="Dealer trade-in. Clean NY title in hand, no lien. 84,000 actual miles, located in NY. Runs and drives, two keys. Front hit: front bumper, hood and grille need replacing. Driver headlight is smashed and the driver fender is dented. Airbags did not deploy, no frame damage, no leaks. Everything else is fine. Shop quoted $4,200. Clean wholesale value is $24,500. Similar damaged ones sold for 9800, 10400, 11200. Won't take less than $9,000."></textarea>
+            <span id="model-note"></span></div>
+          <textarea id="notes" class="text" rows="6" placeholder="Dealer trade-in, located in NY. Runs and drives, two keys. Front hit. No flood or fire signs, catalytic converter is there. Shop quoted $4,200. Won't take less than $9,000."></textarea>
           <div class="read" id="read" aria-live="polite"></div>
         </div>
 
-        <details class="assume">
-          <summary>Fees, labor and timing</summary>
-          <div class="assume-grid" id="assume"></div>
-        </details>
+        <div class="field" style="max-width:220px">
+          <label for="labor-rate">Shop labor rate ($/hour)</label>
+          <input id="labor-rate" class="text" inputmode="numeric" value="95" autocomplete="off">
+          <div class="hint">Used for the repair estimate.</div>
+        </div>
       </div>
     </form>
     <div class="intake-foot">
@@ -69,7 +117,7 @@
 
   <section class="panel empty" id="empty">
     <h2>Sample vehicles</h2>
-    <p>Made-up VINs, descriptions and values. Each one lands on a different outcome.</p>
+    <p>Made-up VINs, descriptions and values.</p>
     <table class="sample-table">
       <thead><tr><th>Vehicle</th><th>VIN</th><th>Title</th><th></th></tr></thead>
       <tbody id="samples"></tbody>
