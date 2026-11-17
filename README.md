@@ -108,3 +108,8 @@ CI (`.github/workflows/ci.yml`) runs all of these on every pull request.
   shows both sides, which only a partnership can provide.
 
 Not in this demo: scraping, a database, logins, payments, paid APIs, or any Copart/ACV integration.
+
+## License
+
+MIT, see `LICENSE`. The collected texts in `data/` keep their own sources' terms, listed in
+`data/sample_user_inputs.sources.md`.
