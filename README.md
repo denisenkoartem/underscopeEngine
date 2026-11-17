@@ -1,88 +1,110 @@
 # Underscope
 
-**Fix it and sell, or sell it as-is, and on which marketplace?** Underscope takes a VIN and the seller's own description of a damaged vehicle. It compares the likely net from repairing and selling against the likely net from selling as-is, and tells you which one probably pays more. When the two are too close to call, it says so and names the one check that would settle it.
+**Where should a damaged car go, ACV or Copart, and should it be repaired first?** Underscope takes
+a VIN and the seller's own description of the vehicle, and returns the marketplace, the net-proceeds
+range of every exit the title allows, and whether repairing first pays.
 
-It uses no paid service: no AI call, no database, no keys.
+Built for UB Hacking as a demo for ACV, which is now part of Copart. Underscope is an independent
+project and uses no ACV or Copart systems.
 
-Built for UB Hacking as a demo for ACV, which is now part of Copart.
+## What is real and what is not
 
-## Demo
+Read this before the numbers.
 
-Run it locally with `npm run dev` (http://localhost:3000). It is not deployed anywhere right now.
-
-- Enter a VIN and describe the vehicle in the one text box: title, mileage, damage, clean wholesale value and what similar damaged vehicles sold for, plus anything else. Or click a sample vehicle (one for each kind of answer). You get where to send it, both net ranges on one scale, P(fix wins), the verdict, and for close calls the one check that would settle it.
-- As you type, the page shows what it has read so far and what it still needs.
-- Click any part grade or damage flag in the result to change it; the recommendation recomputes live (the reviewer toggle).
-- APIs, all with open CORS:
-  - `POST /api/parse-notes` `{ text }`: the description as JSON (title, mileage, state, run status, values, 25 part grades, flags), with the words each value came from and what is still missing. Rules only.
-  - `GET /api/vehicle?vin=`: year, make, model and engine from the free NHTSA vPIC decode.
-  - `POST /api/decide` `{ title_status, grades, flags, values }`: repair band, both nets, P(fix wins), verdict.
-  - `POST /api/route`: the marketplace, ACV or Copart (Python engine in `engine/`).
-- **Integrate** (`/integrate.html`): deep links like `/?vin=...&notes=...&run=1` that any listing page can use, a drag-to-bookmarks **"Fix or sell?" bookmarklet** that pulls the VIN off any listing page and opens a check, and the API calls.
+- **Real:** the pipeline. A description is read into structured facts with the words each fact came
+  from, a parts table prices the repair, rules decide which marketplaces the title allows, and a
+  simulation and a small model choose between them. All of it is tested and runs with no paid
+  service, no database and no keys.
+- **Placeholder:** every market number. Fees, discounts, timings and value curves in
+  `engine/config/assumptions.yaml` are reasoned guesses, each labelled as such. ACV's and Copart's
+  fee schedules are not public.
+- **Simulated:** the marketplace model's training data. It learned from made-up cars labelled by the
+  engine's own simulation. Its accuracy figures say how closely it copies that simulation, not how
+  often it is right about the market. No real sale outcomes are in this repo.
 
 ## How it works
 
 ```
 VIN + the seller's description
         │
-        ├─ parser     rules read the text into JSON: title, mileage, market values,
-        │             25 parts graded fine / repairable / replace / unknown,
-        │             and three flags (airbags, frame, fluid leaks)
-        ├─ decision   repair band (parts + labor, widened for unknowns)
-        │             as-is band (comparable salvage sales)
-        │             1,000 Monte Carlo draws → P(fix wins)
-        │                 > 70%  → fix
-        │                 < 30%  → sell as-is
-        │                 else   → too close to call + what to check
-        └─ routing    ACV or Copart, from the same inputs and repair estimate
+        ├─ reader      description → one JSON of facts (title, mileage, values, 25 part grades,
+        │              flags, run status, ...), each with the words it was read from.
+        │              Keyword rules always; a fine-tuned small model as well when it is switched on.
+        ├─ repair      part × grade lookup → repair cost range, with allowances for what is unchecked
+        └─ engine      title and seller rules → allowed exits
+                       1,000 simulated outcomes per exit → net-proceeds ranges
+                       router model → chance ACV nets more than Copart
+                       → ACV or Copart, clear / close call / not enough to go on
 ```
 
-Every result is a range, never a single price. What the description does not say stays `unknown` instead of being guessed, and unknowns widen the repair band. Each parsed value is shown with the words it was read from.
+What the description does not say stays `unknown`. It is never guessed, and it widens the ranges and
+lowers the stated precision instead.
 
-**Scope:** all passenger vehicles (cars, SUVs, pickups, vans).
+## Run it
 
-The seller sees what was read from the description, a grid of parts with their grades, the two net bands, and the recommendation. A reviewer can change any grade and the numbers recompute live.
+Requires Node 22, pnpm 9 and Python 3.11+.
+
+```sh
+pnpm install
+cd engine && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]" && cd ..
+
+npm run dev                              # http://localhost:3000: the page and the TypeScript APIs
+engine/.venv/bin/python scripts/py-api.py   # 127.0.0.1:3001: /api/route; the dev server forwards to it
+```
+
+Open the page, enter a VIN and fill in the boxes, or open one of the sample vehicles.
+
+## APIs
+
+All accept cross-origin requests. `public/integrate.html` shows deep links and a bookmarklet.
+
+| Endpoint | In | Out |
+|---|---|---|
+| `GET /api/vehicle?vin=` | a VIN | year, make, model, engine (free NHTSA vPIC decode) |
+| `POST /api/parse-notes` | `{ text }` or `{ fields, text }` | the reader's JSON, with `evidence`, `missing` and `questions` |
+| `POST /api/repair-estimate` | `{ grades, flags?, labor_rate? }` | repair cost range, one line per damaged part |
+| `POST /api/route` | the reader's JSON + `vin`, `vehicle`, `repair` | marketplace, `p_acv`, confidence, every allowed exit with its range, notes |
+| `POST /api/engine` | `{ text }` | the reader's JSON from the rules and the trained model together; off unless `ENGINE_ENABLED=1` |
 
 ## Repo layout
 
 | Folder | What's in it |
 |---|---|
-| `api/` | HTTP functions, served by `scripts/dev-server.ts`. `parse-notes.ts`: description → JSON (`reader/src/rules.ts`). `vehicle.ts`: VIN → year, make, model. `decide.ts`: repair band, both nets, verdict (`_lib/decision.ts`). `route.py`: ACV or Copart. `engine.ts`: optional TypeScript engine with the trained reader. |
-| `public/` | The demo page and `demo_vehicles.json` (sample vehicles) |
-| `scripts/` | Dev servers and the decision test |
-| `data/` | `repair_costs.csv` (part × grade → parts cost, labor hours, paint) |
-| `reader/` | The reader: the seller's description in, one assessment JSON out (keyword rules, plus the fine-tuned model in `reader/model/` when it is served). See `reader/README.md` |
-| `engine/` | Artem's Python engine: damage detector, evaluation harness, calibration, review sheets, contracts. See `engine/README.md`. Tests: `cd engine && make test` (217 passing) |
+| `api/` | The HTTP functions above. `_lib/repair.ts` is the repair estimate; `route.py` calls the engine. |
+| `public/` | The demo page (`index.html`, `app.js`, `app.css`), `integrate.html`, and `demo_vehicles.json`. |
+| `reader/` | The reader: one contract (`src/contract.ts`), keyword rules (`src/rules.ts`), the model reader (`src/model.ts`), and `model/` to train and serve it. See `reader/README.md`. |
+| `engine/` | The Python routing engine: rules, simulation, router model. See `engine/README.md`. |
+| `data/` | `repair_costs.csv`; `sample_user_inputs.jsonl` and its sources note (real texts collected for reader training). |
+| `scripts/` | The two local servers, the sample test, and the sample-input preparation script. |
+| `docs/` | Planning documents. |
 
-**Stack:** plain HTML/JS page, HTTP functions in `api/` run by the local dev server (`npm run dev`), rule-based parsing, the free NHTSA vPIC VIN decode. No AI call and no database in the page's path.
-
-## Setup
-
-Requires Node 20+.
-
-```powershell
-pnpm install
-npm run test:decision              # sample vehicles: notes -> parser -> decision, checks every parsed value and verdict
-```
-
-### Run locally
+## Tests
 
 ```sh
-npm run dev                        # http://localhost:3000: public/ and api/*.ts (PORT=xxxx to change)
-python3 scripts/py-api.py          # 127.0.0.1:3001: api/*.py (/api/route); the dev server forwards to it
+npm run typecheck && npm run typecheck:reader
+npm run test:reader        # reader unit tests
+npm run test:samples       # each sample vehicle: boxes → reader → repair estimate
+cd engine && make test lint
 ```
 
-- `POST /api/engine { text }` is off unless `ENGINE_ENABLED=1`. When it is on, the description is also read by the trained reader, and the page shows that reading under the result.
-- The trained reader is served by `reader/model/serve.py`; see `reader/model/README.md`.
+CI (`.github/workflows/ci.yml`) runs all of these on every pull request.
 
-## Testing
+## Measured so far
 
-`npm run test:decision` runs each sample vehicle the way the page does. It fails if the parser reads anything other than the sample's title, grades, flags and values, or if the verdict changes.
+- **Reader, keyword rules:** 82.5% of the facts a description states are read correctly, on 191
+  hand-written descriptions.
+- **Reader, rules plus the fine-tuned model:** 95.2% on the same set, from one training run. The
+  model also invents about five times as many values as the rules (0.97 against 0.18 per
+  description), so it is not switched on in the page.
+- **Router model:** agrees with the full-information simulation on 94.4% of made-up test cars when
+  the description is complete, 69.2% when a needed fact is missing. See `engine/reports/router.md`.
 
-Known limitation: the parser only understands what its rules cover. General statements ("front end damage"), mechanical faults and fault codes are kept as extra information and not used in the numbers. Wording outside its vocabulary is missed, not guessed.
+## Known limits
 
-## Beyond the hackathon
+- The reader's rules only understand wording they cover. General statements ("front end damage")
+  are kept as extra information, not turned into numbers.
+- The repair table is rough ranges for a generic passenger vehicle, not shop quotes.
+- A car sells once, in one channel. Training the marketplace model on real outcomes needs data that
+  shows both sides, which only a partnership can provide.
 
-This demo is the first slice of a larger **channel-routing engine**. For each scanned vehicle, the engine would rank every channel it could go to: ACV dealer wholesale, the Copart salvage lanes, recyclers, or a direct buyer. Each channel gets a P10/P50/P90 net band, days to cash, dispute risk and the buyer segment most likely to pay. The plan builds it on proxy data first, adds a published data contract so Copart/ACV data can plug in later, and evaluates it with a backtest harness. It runs in three 30-day phases: mechanism, then evidence, then a shadow-mode pilot. The research plan and build plan documents have the details.
-
-Not in this demo: fine-tuning, scraping, a database, logins, payments, or any Copart/ACV integration.
+Not in this demo: scraping, a database, logins, payments, paid APIs, or any Copart/ACV integration.
