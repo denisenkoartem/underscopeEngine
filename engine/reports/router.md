@@ -8,12 +8,12 @@
 
 | On the held-out cars | |
 |---|---|
-| Same marketplace as the full-information simulation | 75.9% |
+| Same marketplace as the full-information simulation | 75.6% |
 | Same confidence band (clear or close call) | 53.5% |
-| Mean error of p_acv | 0.250 |
-| ACV is the better marketplace | 54.5% |
-| Dollars lost per car by following the model | $390 |
-| Dollars lost per miss | $1,620 |
+| Mean error of p_acv | 0.251 |
+| ACV is the better marketplace | 53.1% |
+| Dollars lost per car by following the model | $403 |
+| Dollars lost per miss | $1,651 |
 | Largest single miss | $38,917 |
 
 ## By how much the description gives
@@ -22,10 +22,10 @@ The model sees the car the way the reader would hand it over, with facts hidden.
 
 | Precision level | Held-out cars | Same marketplace | Dollars lost per car |
 |---|---|---|---|
-| full (every expected fact given) | 421 | 95.0% | $32 |
-| reduced (only helpful facts missing) | 1,735 | 90.5% | $77 |
-| low (a needed fact missing) | 5,343 | 69.7% | $520 |
-| all | 7,499 | 75.9% | $390 |
+| full (every expected fact given) | 421 | 94.8% | $29 |
+| reduced (only helpful facts missing) | 1,735 | 90.3% | $75 |
+| low (a needed fact missing) | 5,343 | 69.3% | $539 |
+| all | 7,499 | 75.6% | $403 |
 
 ## The engine as it answers
 
@@ -34,11 +34,11 @@ The simulation decides when the seller gives the clean value and the comps; the 
 | | Cars | Same marketplace |
 |---|---|---|
 | full (every expected fact given) | 164 | 100.0% |
-| low (a needed fact missing) | 1,921 | 70.4% |
+| low (a needed fact missing) | 1,921 | 70.3% |
 | reduced (only helpful facts missing) | 725 | 92.0% |
-| the model decides (a money fact missing) | 1,921 | 70.4% |
+| the model decides (a money fact missing) | 1,921 | 70.3% |
 | the simulation decides (clean value and comps given) | 889 | 93.5% |
-| all | 2,810 | 77.7% |
+| all | 2,810 | 77.6% |
 
 ## Sanity check on the reader's own output
 
@@ -46,25 +46,25 @@ The reader's fixture rows (tests/fixtures/reader_assessments.jsonl), where the m
 
 | Kind of row | Rows | Model decides | Same marketplace as the simulation |
 |---|---|---|---|
-| rules | 191 | 104 | 72.1% |
-| label | 60 | 27 | 70.4% |
+| rules | 191 | 104 | 70.2% |
+| label | 60 | 27 | 66.7% |
 | complete | 60 | 0 | n/a |
 
 ## Features that matter most
 
 Drop in agreement when the feature is shuffled:
 
-- `comps_median_usd`: 0.074
+- `comps_median_usd`: 0.077
 - `clean_value`: 0.036
-- `parts_replace`: 0.033
 - `run_status`: 0.032
-- `title_status`: 0.024
-- `reserve_price_usd`: 0.021
-- `engine_condition`: 0.016
-- `comps_min`: 0.012
-- `comps_max`: 0.011
-- `transmission_condition`: 0.006
-- `app_repair_high_usd`: 0.005
+- `parts_replace`: 0.030
+- `reserve_price_usd`: 0.024
+- `title_status`: 0.022
+- `engine_condition`: 0.013
+- `comps_min`: 0.013
+- `comps_max`: 0.012
+- `transmission_condition`: 0.008
 - `comps_median`: 0.005
+- `app_repair_high_usd`: 0.005
 
 Regenerate with `underscope train-router` (add `--data rows.jsonl` for recorded outcomes).

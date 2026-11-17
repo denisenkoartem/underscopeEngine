@@ -305,8 +305,8 @@ signals:
   replace_with: Repair invoices and arbitration claims by warning light, fault-code system and reported symptom; title-transfer times by state pair.
   # Complaints in the seller's words. Each is a chance of a repair: in chance_pct % of the
   # simulated outcomes it costs repair_cents [low, expected, high]. A light, code or symptom on
-  # the engine or transmission is skipped when that component's condition is already stated
-  # (its cost is counted there).
+  # the engine or transmission is skipped when that component is already stated as faulty
+  # (its cost is counted there). Stated as fine, the complaint still counts (2026-11-17).
   warning_light:
     check_engine: {chance_pct: 60, repair_cents: [10000, 60000, 250000]}
     abs: {chance_pct: 70, repair_cents: [10000, 40000, 150000]}

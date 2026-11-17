@@ -48,7 +48,7 @@ FIELD_USE: dict[str, tuple[str, str]] = {
     "catalytic_converter": ("dollar", "replacement cost"),
     "parts_missing": ("dollar", "lower as-is and Copart price"),
     "already_repaired": ("dollar", "yes: no repair cost or days; partly: review reason"),
-    "warning_lights": ("dollar", "each light is a chance of a repair"),
+    "warning_lights": ("dollar", "each light is a chance of a repair (not on a stated fault)"),
     "codes": ("dollar", "each fault code is a chance of a repair"),
     "symptoms": ("dollar", "each complaint is a chance of a repair"),
     "values": ("dollar", "clean value and comps anchor prices; repair quote is the repair "
@@ -179,7 +179,10 @@ def signals(s: Assessment, region: str | None, a: Assumptions) -> list[Signal]:
     out-of-state title, each as a chance of a cost or a delay. What the seller does not mention
     clears nothing: no light is not a scan."""
     cfg = a["signals"]
-    engine, trans = s.engine_condition != "unknown", s.transmission_condition != "unknown"
+    # A stated fault already carries its cost. A component stated as fine does not: a light,
+    # code or complaint on it is still counted (the seller's "runs fine" is not a scan).
+    engine = s.engine_condition in ("minor", "failed")
+    trans = s.transmission_condition in ("minor", "failed")
     out: list[Signal] = []
 
     def add(name: str, spec: dict[str, Any], chance_pct: float | None = None) -> None:
@@ -357,4 +360,9 @@ def to_engine(payload: dict[str, Any], a: Assumptions | None = None,
         signals=signals(s, stated_region, a),
         condition=condition,
     )
+    counted = [x for x in vehicle.signals if x.repair_cents]
+    if counted:
+        notes.append("Counted as a chance of a repair: " + "; ".join(
+            f"{x.name} ({x.chance:.0%}, ${x.repair_cents[0] // 100:,} to "
+            f"${x.repair_cents[2] // 100:,})" for x in counted) + ". Placeholder numbers.")
     return vehicle, findings, notes

@@ -85,79 +85,79 @@
   ],
   "held_out": {
     "rows": 7499,
-    "agreement": 0.759,
-    "p_acv_mean_abs_error": 0.2498,
-    "band_agreement": 0.5347,
-    "acv_share": 0.5446,
-    "dollars_lost_per_car": 390.31,
-    "dollars_lost_per_miss": 1619.76,
+    "agreement": 0.7561,
+    "p_acv_mean_abs_error": 0.2513,
+    "band_agreement": 0.5346,
+    "acv_share": 0.5306,
+    "dollars_lost_per_car": 402.58,
+    "dollars_lost_per_miss": 1650.6,
     "worst_miss_dollars": 38916.99,
     "by_level": {
       "full": {
         "rows": 421,
-        "agreement": 0.9501,
-        "dollars_lost_per_car": 32.22
+        "agreement": 0.9477,
+        "dollars_lost_per_car": 29.12
       },
       "reduced": {
         "rows": 1735,
-        "agreement": 0.9049,
-        "dollars_lost_per_car": 76.89
+        "agreement": 0.9026,
+        "dollars_lost_per_car": 74.59
       },
       "low": {
         "rows": 5343,
-        "agreement": 0.6966,
-        "dollars_lost_per_car": 520.29
+        "agreement": 0.6934,
+        "dollars_lost_per_car": 538.51
       }
     }
   },
   "top_features": [
     [
       "comps_median_usd",
-      0.0738
+      0.0772
     ],
     [
       "clean_value",
-      0.0359
-    ],
-    [
-      "parts_replace",
-      0.0332
+      0.0365
     ],
     [
       "run_status",
-      0.0322
+      0.0324
     ],
     [
-      "title_status",
-      0.0235
+      "parts_replace",
+      0.0304
     ],
     [
       "reserve_price_usd",
-      0.0207
+      0.024
+    ],
+    [
+      "title_status",
+      0.022
     ],
     [
       "engine_condition",
-      0.0163
+      0.0133
     ],
     [
       "comps_min",
-      0.012
+      0.0132
     ],
     [
       "comps_max",
-      0.011
+      0.012
     ],
     [
       "transmission_condition",
-      0.0064
-    ],
-    [
-      "app_repair_high_usd",
-      0.0053
+      0.0084
     ],
     [
       "comps_median",
-      0.0049
+      0.0054
+    ],
+    [
+      "app_repair_high_usd",
+      0.0051
     ]
   ],
   "features_never_stated_in_training": [
@@ -167,14 +167,14 @@
     "rules": {
       "rows": 191,
       "model_decides": 104,
-      "same": 75,
-      "agreement": 0.7212
+      "same": 73,
+      "agreement": 0.7019
     },
     "label": {
       "rows": 60,
       "model_decides": 27,
-      "same": 19,
-      "agreement": 0.7037
+      "same": 18,
+      "agreement": 0.6667
     },
     "complete": {
       "rows": 60,
@@ -187,7 +187,7 @@
     "cars": 3000,
     "seed": 1007,
     "rows": 2810,
-    "agreement": 0.7772,
+    "agreement": 0.7765,
     "by_level": {
       "full": {
         "rows": 164,
@@ -195,7 +195,7 @@
       },
       "low": {
         "rows": 1921,
-        "agreement": 0.7043
+        "agreement": 0.7033
       },
       "reduced": {
         "rows": 725,
@@ -205,7 +205,7 @@
     "by_decider": {
       "model": {
         "rows": 1921,
-        "agreement": 0.7043
+        "agreement": 0.7033
       },
       "simulation": {
         "rows": 889,

@@ -56,7 +56,7 @@ Open the page, enter a VIN and fill in the boxes, or open one of the sample vehi
 
 ## APIs
 
-All accept cross-origin requests. `public/integrate.html` shows deep links and a bookmarklet.
+All accept cross-origin requests.
 
 | Endpoint | In | Out |
 |---|---|---|
@@ -71,7 +71,7 @@ All accept cross-origin requests. `public/integrate.html` shows deep links and a
 | Folder | What's in it |
 |---|---|
 | `api/` | The HTTP functions above. `_lib/repair.ts` is the repair estimate; `route.py` calls the engine. |
-| `public/` | The demo page (`index.html`, `app.js`, `app.css`), `integrate.html`, and `demo_vehicles.json`. |
+| `public/` | The demo page (`index.html`, `app.js`, `app.css`) and `demo_vehicles.json`. |
 | `reader/` | The reader: one contract (`src/contract.ts`), keyword rules (`src/rules.ts`), the model reader (`src/model.ts`), and `model/` to train and serve it. See `reader/README.md`. |
 | `engine/` | The Python routing engine: rules, simulation, router model. See `engine/README.md`. |
 | `data/` | `repair_costs.csv`; `sample_user_inputs.jsonl` and its sources note (real texts collected for reader training). |

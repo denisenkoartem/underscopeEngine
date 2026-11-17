@@ -94,6 +94,17 @@ describe("traps", () => {
   it("mileage: kilometres are not miles for the model, but a number next to 'miles' is", () => {
     expect(readRules("61k miles on it.").mileage).toBe(61000);
   });
+  it("an insurer selling, however it is worded; a payout to the owner is not an insurer sale", () => {
+    for (const t of ["Claim vehicle being sold by the insurer.", "Insurance company selling.", "Insurance company owns this one.", "Insurance-owned unit.", "Owned by the insurance carrier."])
+      expect(readRules(t).seller_type, t).toBe("insurer");
+    expect(readRules("The insurer paid the claim and I kept the car.").seller_type).toBe("unknown");
+  });
+  it("'does not drive' is not drivable (starts); 'not drivable' is not 'drivable'; 'won't drive straight' still drives", () => {
+    for (const t of ["Does not drive.", "Car doesn't drive.", "Not drivable after the hit.", "Non-driver.", "Can't be driven."])
+      expect(readRules(t).run_status, t).toBe("starts");
+    expect(readRules("Won't start, does not drive.").run_status).toBe("does_not_start");
+    expect(readRules("Won't drive straight, pulls left.").run_status).toBe("runs_and_drives");
+  });
 });
 
 describe("vinCheckDigitOk", () => {
@@ -101,5 +112,36 @@ describe("vinCheckDigitOk", () => {
     expect(vinCheckDigitOk("1FTEW1EP6JKD12345")).toBe(vinCheckDigitOk("1FTEW1EP6JKD12345"));
     expect(vinCheckDigitOk("11111111111111111")).toBe(true);
     expect(vinCheckDigitOk("11111111211111111")).toBe(false);
+  });
+});
+
+describe("warning lights", () => {
+  const lights = (text: string) => [...readRules(text).warning_lights].sort();
+  it("reads '<name> light is on' for the lights a seller names", () => {
+    for (const [text, want] of [
+      ["Check engine light is on.", ["check_engine"]], ["MIL is on.", ["check_engine"]], ["Engine warning light is illuminated.", ["check_engine"]],
+      ["ABS warning light is on.", ["abs"]], ["Anti-lock brake light is on.", ["abs"]], ["SRS light is on.", ["airbag"]],
+      ["Transmission light is on.", ["other"]], ["Coolant light is on.", ["other"]], ["Power steering light is on.", ["other"]],
+      ["Oil pressure warning is on.", ["other"]], ["The brake warning light is on.", ["other"]], ["Several warning lights are on.", ["other"]],
+    ] as const) expect(lights(text), text).toEqual([...want]);
+  });
+  it("reads a list of lights and the lights named after 'on the dash'", () => {
+    expect(lights("Check engine and ABS lights are on.")).toEqual(["abs", "check_engine"]);
+    expect(lights("CEL, ABS and airbag lights all on.")).toEqual(["abs", "airbag", "check_engine"]);
+    expect(lights("Lights on the dash: check engine, abs.")).toEqual(["abs", "check_engine"]);
+    expect(lights("Dash shows check engine and tpms.")).toEqual(["check_engine", "other"]);
+  });
+  it("applies 'no' and 'off' to the light they are said about", () => {
+    expect(lights("Check engine light is on, ABS light is off.")).toEqual(["check_engine"]);
+    expect(lights("No check engine light but the ABS light is on.")).toEqual(["abs"]);
+    expect(lights("No ABS or airbag lights.")).toEqual([]);
+    expect(lights("Check engine light was on but is off now.")).toEqual([]);
+    expect(lights("The engine light comes on and off.")).toEqual(["check_engine"]);
+    expect(lights("Check engine light on? not checked.")).toEqual([]);
+  });
+  it("does not take a lamp, a part or a fault for a warning light", () => {
+    for (const text of ["Left tail light is broken.", "Brake light out on the left.", "Third brake light is cracked.", "Battery is dead.",
+      "Crack on the dash, engine runs fine.", "Engine warning: it knocks.", "Airbags deployed.", "Coolant is low.", "Light front damage, engine ok."])
+      expect(lights(text), text).toEqual([]);
   });
 });

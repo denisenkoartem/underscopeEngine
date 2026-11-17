@@ -72,7 +72,7 @@ const ODOMETER_STATUS: Table<'actual' | 'not_actual' | 'exempt'> = [
   [/\bactual (?:miles?|mileage)\b|\b(?:miles?|mileage|mi),? (?:is |are )?actual\b/, 'actual'],
 ];
 const SELLER_TYPE: Table<'dealer' | 'insurer' | 'fleet' | 'lender' | 'individual'> = [
-  [/\binsurance (?:company |carrier )?(?:sale|vehicle|total loss)\b|\bselling (?:it )?for (?:an? |the )?insur\w+|\binsurer is selling\b|\btotal loss claim\b|\bclaims? adjuster\b/, 'insurer'],
+  [/\binsurance (?:company |carrier )?(?:sale|vehicle|total loss)\b|\bselling (?:it )?for (?:an? |the )?insur\w+|\binsurer is selling\b|\btotal loss claim\b|\bclaims? adjuster\b|\bclaim vehicle\b|\binsurance[- ]owned\b|\b(?:sold|being sold|offered|listed|owned) by (?:the |an |my )?insur(?:er|ance (?:company|carrier))\b|\binsur(?:er|ance (?:company|carrier)) (?:owns|is selling|selling|sells|is the seller)\b/, 'insurer'],
   [/\b(?:repo|repossess\w*|bank[- ]owned|lender is selling)\b/, 'lender'],
   [/\b(?:fleet|ex[- ]rental|rental (?:car|unit|company)|company (?:truck|car|van|vehicle))\b/, 'fleet'],
   [/\b(?:dealer(?:ship)?|trade[- ]in|(?:on|off) our lot)\b(?! auctions?| sales?)/, 'dealer'],
@@ -118,11 +118,58 @@ const LANE_LIMIT: Table<'acv' | 'copart'> = [
   [/\bdealer (?:auctions?|sales?) only\b|\bacv only\b|\b(?:to )?dealers only\b|\bwholesale only\b/, 'acv'],
   [/\bsalvage (?:auctions?|buyers) only\b|\bcopart only\b|\bhas to go to (?:a )?salvage\b/, 'copart'],
 ];
-const LIGHTS: Table<WarningLight> = [
-  [/\bcheck engine(?: light)?\b|\bcel\b|\bengine light\b|\bservice engine\b/, 'check_engine'], [/\babs light\b|\babs (?:is )?on\b/, 'abs'],
-  [/\bair ?bag (?:warning )?light\b|\bsrs light\b/, 'airbag'],
-  [/\b(?:traction(?: control)?|tpms|tire pressure|battery|oil(?: pressure)?|brake|stability|4wd|awd) light\b|(?<!air ?bag )\bwarning lights? (?:is |are |stays? )?on\b|\bdash lights? (?:is |are )?(?:on|lit)\b/, 'other'],
+// Warning lights. A name counts when "light" (or lamp, indicator, warning) follows it or its list
+// ("check engine and abs lights"), when the sentence is about the dash, or when it cannot be anything
+// else ("check engine", "cel"). "Brake light" alone is the lamp at the rear, so it needs "is on".
+const LIGHT_NAMES: Table<WarningLight> = [
+  [/\bche?c?k[- ]engine\b|\bcel\b|\bmil\b|\bmalfunction indicator\b|\bservice engine(?: soon)?\b|\bengine\b/, 'check_engine'],
+  [/\babs\b|\banti[- ]?lock(?: brakes?)?\b/, 'abs'],
+  [/\bair ?bags?\b|\bsrs\b/, 'airbag'],
+  [/\b(?:traction(?: control)?|tpms|(?:low )?tire pressure|battery|(?:low )?oil(?: pressure)?|brake|stability(?: control)?|4wd|awd|trans(?:mission)?|temp(?:erature)?|coolant|power steering|epc|charging(?: system)?|glow plug|dpf|def|wrench|esp|esc|vsc|tcs)\b/, 'other'],
 ];
+const LIGHT_WORD = /^(?: warning| indicator)? (?:lights?|lites?|lamps?|indicators?|warnings?)\b/;
+const LIGHT_LIST_GAP = /^(?:\s*(?:,|\/|&|\band\b|\bor\b)\s*)+$/;
+const LIGHT_ALONE = /^(?:che?c?k[- ]engine|cel|service engine(?: soon)?|malfunction indicator)$/;
+const DASH = /\b(?:lights?|warnings?) on (?:the |my )?dash\b|\bdash(?:board)? (?:warning )?lights?\b|\bdash(?:board)? (?:shows|says|has)\b|\bon the dash:|\bwarning lights?:/;
+const BRAKE_ON = /^(?: on (?:the |my )?dash)? (?:is |are |stays |came |comes )?(?:on|lit)\b(?! the (?:left|right|driver|passenger))/;
+const LIGHTS_ANY = /\b(?:warning|dash(?:board)?|several|multiple|many|some|a few|a couple of|bunch of) (?:warning |dash )?lights? (?:is |are |stays? |stay |came |come )?(?:on|lit)\b|\b(?:several|multiple|many|a few|a bunch of) (?:warning )?lights on (?:the |my )?dash\b|\bdash(?:board)? (?:is )?lit up\b|\bchristmas tree\b/;
+const LIGHT_OFF = /\b(?:off|not on|no longer on|went away|went out)\b/;
+
+/** The warning lights one lowercase sentence says are on, with the words each was read from. */
+function readLights(s: string): { light: WarningLight; quote: string }[] {
+  if (/\?|\bnot sure\b|\bunsure\b|\bdon'?t know\b|\bnot checked\b/.test(s)) return [];
+  const found: { light: WarningLight; at: number; end: number }[] = [];
+  for (const [re, light] of LIGHT_NAMES) {
+    const g = new RegExp(re.source, 'g');
+    for (let m = g.exec(s); m; m = g.exec(s)) {
+      if (!found.some((f) => m!.index < f.end && f.at < m!.index + m![0].length)) found.push({ light, at: m.index, end: m.index + m[0].length });
+    }
+  }
+  found.sort((x, y) => x.at - y.at);
+  const steady = s.replace(/\bon and off\b/g, 'on and ___');
+  const dash = DASH.exec(s);
+  const out: { light: WarningLight; quote: string }[] = [];
+  let listNegated = false;
+  found.forEach((f, k) => {
+    const name = s.slice(f.at, f.end), next = found[k + 1];
+    // "check engine and abs lights": the light word may come after the names that follow in the list.
+    let j = k;
+    while (found[j + 1] && LIGHT_LIST_GAP.test(s.slice(found[j].end, found[j + 1].at))) j++;
+    const tail = s.slice(found[j].end), word = LIGHT_WORD.exec(tail);
+    const brake = name === 'brake' && !(word && BRAKE_ON.test(tail.slice(word[0].length))) && !/ warning\b/.test(word?.[0] ?? '');
+    const engine = name === 'engine' && !/\b(?:lights?|lites?|lamps?)$/.test(word?.[0] ?? '');
+    const isLight = !brake && !engine && (word || (dash && f.at > dash.index) || LIGHT_ALONE.test(name) || (/^(?:abs|srs|mil)$/.test(name) && /^ (?:is |stays |came |comes )?on\b/.test(tail)));
+    const before = s.slice(k ? found[k - 1].end : 0, f.at);
+    const negated = NEG_BEFORE.test(s.slice(0, f.at).slice(-40).replace(/^.*[,;]/, '')) && NEG_BEFORE.test(before) || (listNegated && LIGHT_LIST_GAP.test(before));
+    listNegated = negated;
+    if (!isLight || negated) return;
+    if (LIGHT_OFF.test(steady.slice(f.end, next ? next.at : undefined))) return;
+    if (!out.some((o) => o.light === f.light)) out.push({ light: f.light, quote: s.slice(f.at, j === k && word ? f.end + word[0].length : f.end) });
+  });
+  const any = LIGHTS_ANY.exec(s);
+  if (any && !out.length && !NEG_BEFORE.test(s.slice(0, any.index)) && !LIGHT_OFF.test(steady.slice(any.index))) out.push({ light: 'other', quote: any[0] });
+  return out;
+}
 // Where the damage is, in Copart's listing categories. Every match counts, in the order written.
 const AREAS: Table<Exclude<DamageArea, 'unknown' | 'none'>> = [
   [/\bfront[- ]end\b|\bfront (?:hit|impact|collision|damage)\b|\bfront (?:and|&) rear\b|\b(?:hit|damage|damaged) (?:in|on|to) the front\b|\bhead[- ]on\b|\bhit (?:in|on) the front\b|\bfrontal\b/, 'front'],
@@ -237,11 +284,13 @@ export function readRules(text: string): Assessment {
     if (run_status !== 'unknown') return;
     const no = /\b(?:(?:does ?n[o']t|won'?t|will not|doesnt|wont|no) (?:start|run|crank|turn over)|non[- ]?runn(?:er|ing)|not running|no[- ]start|dead engine|engine (?:is )?(?:seized|blown|locked)|towed in|needs a tow)\b/.exec(s);
     const stuck = /\b(?:starts?|runs?|idles)\b[^.]{0,30}\b(?:won'?t (?:move|drive|go into gear)|no drive|(?:does|will) not drive|doesn'?t (?:move|drive))\b/.exec(s);
+    // "Does not drive" with nothing said about starting: not drivable, read as `starts` like "starts but won't drive".
+    const noDrive = /\b(?:(?:does ?n[o']t|doesnt|won'?t|wont|will not|can'?t|cannot|can not) (?:be )?driven?\b(?! (?:straight|right|well))|(?:not|no longer) (?:drivable|driveable)\b|\bnon[- ]?(?:drivable|driveable|driver|drivin[g']?)\b|\bun(?:drivable|driveable)\b)/.exec(s);
     const drives = /\b(?:runs?|starts?) ?(?:and|&|\+|\/) ?drives?\b|\bdrives? (?:fine|well|good|ok|okay|great|straight)\b|\bdrivable\b|\bdriveable\b|\br&d\b|\bdaily driver\b|\bdrove it\b|\bstill drives\b|\bruns? n drives?\b|\bruns?\b[^.;]{0,25}\bdrives\b/.exec(s);
     const starts = /\b(?:starts|runs|running(?! \$)|turns on|idles)\b/.exec(s);
-    const m = no ?? stuck ?? drives ?? starts;
+    const m = no ?? stuck ?? noDrive ?? drives ?? starts;
     if (!m) return;
-    run_status = no ? 'does_not_start' : stuck ? 'starts' : drives ? 'runs_and_drives' : 'starts';
+    run_status = no ? 'does_not_start' : stuck || noDrive ? 'starts' : drives ? 'runs_and_drives' : 'starts';
     note('run_status', i, m[0]);
   });
 
@@ -432,11 +481,10 @@ export function readRules(text: string): Assessment {
 
   // Warning lights that are on (a "no warning lights" sentence lists none).
   lower.forEach((s, i) => {
-    for (const [re, light] of LIGHTS) {
-      const m = re.exec(s);
-      if (!m || NEG_BEFORE.test(s.slice(0, m.index)) || /\b(?:off|not on|no longer on)\b/.test(s.slice(m.index)) || a.warning_lights.includes(light)) continue;
+    for (const { light, quote } of readLights(s)) {
+      if (a.warning_lights.includes(light)) continue;
       a.warning_lights.push(light);
-      note(`warning_lights.${light}`, i, m[0]);
+      note(`warning_lights.${light}`, i, quote);
     }
   });
 

@@ -114,6 +114,18 @@ def test_what_the_seller_does_not_mention_clears_nothing():
     assert quiet.signals == [] and quiet.engine_audio_abnormal is None  # still unknown
 
 
+def test_a_check_engine_light_counts_unless_the_engine_fault_is_already_stated():
+    a = default_assumptions()
+    for engine, n in (("unknown", 1), ("ok", 1), ("minor", 0), ("failed", 0)):
+        b = body(**{**GOOD, "engine_condition": engine}, warning_lights=["check_engine"])
+        v, _, notes = to_engine(b, a)
+        assert len(v.signals) == n, engine
+        assert any("check engine light (60%" in x for x in notes) == bool(n), engine
+    fine = {**GOOD, "engine_condition": "ok"}
+    lit = route(body(**fine, warning_lights=["check_engine"]), a)
+    assert money(lit) != money(route(body(**fine), a))
+
+
 def test_parts_assumed_from_a_damage_area_are_marked_and_switchable():
     a = default_assumptions()
     b = body(**GOOD, grades=UNGRADED, primary_damage="front")
