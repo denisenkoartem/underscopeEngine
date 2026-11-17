@@ -5,25 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "underscope"
 version = "0.1.0"
-description = "Vehicle intelligence platform: disposition decision engine for damaged vehicles"
+description = "Routing engine for damaged vehicles: ACV or Copart, from the reader's assessment"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2", "numpy", "pandas", "pyyaml", "typer", "scikit-learn"]
+dependencies = ["pydantic>=2", "numpy", "pyyaml", "typer", "scikit-learn"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
-# Real damage detector (OpenAI vision; the Claude one also works with anthropic installed).
-# The engine and tests run without it.
-vision = ["openai", "pillow"]
-claude = ["anthropic", "pillow"]
 
 [project.scripts]
 underscope = "underscope.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-underscope = ["*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

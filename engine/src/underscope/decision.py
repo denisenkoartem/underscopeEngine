@@ -120,7 +120,9 @@ def simulate(
         if e.days:
             extra_days = extra_days + np.where(on, e.days, 0)
 
-    hold = tm["holding_cost_per_day_cents"]
+    hold = tm["holding_cost_per_day_cents"] + vehicle.storage_cents_per_day
+    if vehicle.repair_done:
+        repair_days = zero  # already repaired: nothing left to wait for
     nets: dict[Path, np.ndarray] = {}
     comps: dict[Path, dict[str, np.ndarray]] = {}
 

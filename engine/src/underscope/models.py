@@ -57,11 +57,26 @@ class Condition(BaseModel):
     odometer_status: Literal["actual", "not_actual", "exempt"] | None = None
     title_in_hand: bool | None = None
     lien: Literal["none", "open"] | None = None
+    parts_missing: bool | None = None
+    # Not facts with an effect of their own: they scale other effects (config `signals`).
+    drivetrain: Literal["fwd", "rwd", "awd", "4wd"] | None = None
+    fuel_type: Literal["gas", "diesel", "hybrid", "electric"] | None = None
 
     def stated(self, fact: str) -> str | None:
         """The fact as the config spells it: yes / no for booleans, the value otherwise."""
         v = getattr(self, fact)
         return v if v is None or isinstance(v, str) else "yes" if v else "no"
+
+
+class Signal(BaseModel):
+    """A complaint from the description (a warning light, a fault code, a symptom) or a
+    paperwork fact: in `chance` of the simulated outcomes it costs `repair_cents` and adds
+    `days` (config `signals`)."""
+
+    name: str
+    chance: float = Field(ge=0, le=1)
+    repair_cents: tuple[int, int, int] | None = None
+    days: int = 0
 
 
 class VehicleRecord(BaseModel):
@@ -92,6 +107,12 @@ class VehicleRecord(BaseModel):
     # When set it replaces the panel and mechanical estimates, and the hidden-damage reserve is
     # skipped so unseen damage isn't counted twice.
     repair_override_cents: tuple[int, int, int] | None = None
+    # Complaints and paperwork facts from the description, each a chance of a cost or a delay.
+    signals: list[Signal] = Field(default_factory=list)
+    # The seller says the damage is already repaired: no repair cost and no repair days left.
+    repair_done: bool = False
+    # The seller's own storage cost, added to the holding cost of every exit, per day.
+    storage_cents_per_day: int = Field(default=0, ge=0)
     # Optional facts from the seller's description (run status, keys, engine, flood signs...).
     # Absent: none of them is considered, as before the reader supplied them.
     condition: Condition | None = None

@@ -40,8 +40,9 @@ def test_grades_map_to_engine_panels_and_sides():
     got = {(f.panel, f.side, f.damage_type.value) for f in findings}
     assert (Panel.HOOD, "center", "broken") in got
     assert (Panel.FRONT_BUMPER, "left", "dent") in got
-    assert len(findings) == 2  # the mirror isn't a costed panel
-    assert any("left mirror" in n for n in notes)
+    assert len(findings) == 2  # the mirror isn't a panel: it is costed from config
+    assert vehicle.mechanical_repair_cents == (15_000, 45_000)
+    assert any("Mirrors, wheels, interior" in n for n in notes)
     assert vehicle.clean_value_cents == 1_100_000
     assert vehicle.salvage_comps_cents == [262_500, 487_500, 532_500, 772_500]
     assert vehicle.undercarriage_damage is False and vehicle.engine_audio_abnormal is False
@@ -94,9 +95,9 @@ def test_mechanical_repair_raises_the_repair_estimate():
     assert rep_codes < rep
 
 
-def test_bad_vin_is_rejected():
-    with pytest.raises(ValueError, match="17 characters"):
-        to_engine(payload(vin="SHORT"))
+def test_a_missing_vin_is_noted_not_rejected():
+    vehicle, _, notes = to_engine(payload(vin="SHORT"))
+    assert vehicle.vin == "" and any("No 17-character VIN" in n for n in notes)
 
 
 def test_app_repair_estimate_replaces_engine_costs():

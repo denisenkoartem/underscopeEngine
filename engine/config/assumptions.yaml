@@ -15,9 +15,28 @@ base_value:
   cents_per_mile: 4
   floor_cents: 150000
 
+defaults:
+  status: PLACEHOLDER
+  replace_with: A VIN decode for the model year, the odometer reading, and the state the vehicle is in.
+  # Used only when the description does not give the fact; the response notes each one used.
+  vehicle_age_years: 8     # year unknown: assumed age. Without a clean value the year is listed as missing.
+  miles_per_year: 12000    # mileage unknown: age x this (never treated as 0 miles)
+  region: NY               # state unknown: this state's total-loss threshold
+  # State from the ZIP code when the description gives a ZIP but no state (3-digit prefix
+  # ranges, USPS; only the states the total-loss table knows).
+  zip_prefix_state:
+    NY: [[100, 149]]
+    CA: [[900, 961]]
+    TX: [[750, 799], [885, 885]]
+    FL: [[320, 349]]
+    MI: [[480, 499]]
+    OH: [[430, 459]]
+
 repair_cost:
   status: PLACEHOLDER
   replace_with: Shop estimate data (CCC/Mitchell-style) or dealer repair invoices by panel and damage type.
+  # A seller's own shop quote (values.repair_estimate) becomes the repair band: quote x these.
+  seller_quote_spread: [0.9, 1.0, 1.3]
   # Cost at severity 1.0 for a dent; scaled by damage type multiplier and by severity.
   panel_base_cents:
     front_bumper: [60000, 90000, 140000]
@@ -210,6 +229,10 @@ condition:
       exempt:
         acv_as_is: [0.92, 0.96, 1.0]
         repaired: [0.92, 0.96, 1.0]
+    parts_missing:
+      "yes":
+        acv_as_is: [0.85, 0.92, 0.98]
+        copart: [0.85, 0.92, 0.98]
     title_in_hand:
       "no":
         days: 21   # RULES.md T09
@@ -228,6 +251,7 @@ condition:
     odometer_status: {value: not_actual, chance_pct: 2}
     title_in_hand: {value: "no", chance_pct: 10}
     lien: {value: open, chance_pct: 8}
+    parts_missing: {value: "yes", chance_pct: 5}
 
 grades:
   status: PLACEHOLDER
@@ -238,36 +262,115 @@ grades:
   replace: {damage_type: broken, severity: 0.9}
   confidence: 0.85
   frame_suspected: {damage_type: crush, severity: 0.6, confidence: 0.6}
+  # Parts that are not body panels: a repair cost [low, high] per grade, added to the engine's
+  # own estimate (not used when the page's estimate or a seller's quote is the repair cost).
+  other_parts_cents:
+    left_mirror: {repairable: [5000, 15000], replace: [15000, 45000]}
+    right_mirror: {repairable: [5000, 15000], replace: [15000, 45000]}
+    wheels_and_tires: {repairable: [10000, 40000], replace: [40000, 160000]}
+    interior: {repairable: [15000, 80000], replace: [100000, 400000]}
+    engine_bay: {repairable: [20000, 120000], replace: [100000, 500000]}
+
+damage_areas:
+  status: PLACEHOLDER
+  replace_with: Copart lot data pairing the listed primary and secondary damage with the parts actually damaged, by vehicle class.
+  # primary_damage / secondary_damage are Copart's listing categories. When the description
+  # names an area but does not grade a part, the area fills that part with the grade below
+  # (the secondary area one step milder: replace -> repairable). Parts the description grades
+  # are never overridden. `flags` are set only where the description leaves them unknown.
+  # "none" means no damage: every ungraded part is fine.
+  fill_ungraded_parts: true   # false: damage areas are a model feature only
+  parts:
+    front: {front_bumper: replace, hood: repairable, grille: replace, left_headlight: repairable, right_headlight: repairable}
+    rear: {rear_bumper: replace, tailgate_or_rear_doors: repairable, left_taillight: repairable, right_taillight: repairable}
+    side: {left_front_door: repairable, left_rear_door: repairable, left_front_fender: repairable, left_rear_quarter: repairable}
+    rollover: {roof: replace, windshield: replace, hood: repairable, left_front_door: repairable, right_front_door: repairable}
+    all_over: {front_bumper: repairable, rear_bumper: repairable, hood: repairable, roof: repairable, left_front_door: repairable, right_front_door: repairable, left_front_fender: repairable, right_front_fender: repairable}
+    undercarriage: {underbody: repairable}
+    mechanical: {engine_bay: repairable}
+    hail: {hood: repairable, roof: repairable, tailgate_or_rear_doors: repairable}
+    water: {interior: replace}
+    fire: {engine_bay: replace, interior: repairable}
+    vandalism: {windshield: replace, interior: repairable}
+    theft: {interior: repairable}
+    minor: {front_bumper: repairable}
+    none: {}
+  flags:
+    rollover: [frame_suspected]
+    water: [flood_suspected]
+    fire: [fire_damage]
+
+signals:
+  status: PLACEHOLDER
+  replace_with: Repair invoices and arbitration claims by warning light, fault-code system and reported symptom; title-transfer times by state pair.
+  # Complaints in the seller's words. Each is a chance of a repair: in chance_pct % of the
+  # simulated outcomes it costs repair_cents [low, expected, high]. A light, code or symptom on
+  # the engine or transmission is skipped when that component's condition is already stated
+  # (its cost is counted there).
+  warning_light:
+    check_engine: {chance_pct: 60, repair_cents: [10000, 60000, 250000]}
+    abs: {chance_pct: 70, repair_cents: [10000, 40000, 150000]}
+    airbag: {chance_pct: 70, repair_cents: [15000, 60000, 200000]}
+    other: {chance_pct: 40, repair_cents: [5000, 25000, 100000]}
+  # Fault codes by first letter: P powertrain, C chassis, B body, U network.
+  code:
+    P: {repair_cents: [10000, 70000, 300000]}
+    C: {repair_cents: [10000, 40000, 150000]}
+    B: {repair_cents: [5000, 30000, 120000]}
+    U: {repair_cents: [5000, 35000, 150000]}
+  code_status_chance_pct: {confirmed: 90, pending: 50, history: 15}
+  max_codes: 4   # codes beyond this add nothing (one fault often sets several)
+  symptom:
+    engine: {chance_pct: 70, repair_cents: [20000, 90000, 400000]}
+    transmission: {chance_pct: 70, repair_cents: [20000, 90000, 350000]}
+    brakes: {chance_pct: 80, repair_cents: [10000, 35000, 120000]}
+    steering_suspension: {chance_pct: 80, repair_cents: [15000, 50000, 180000]}
+    electrical: {chance_pct: 70, repair_cents: [5000, 30000, 150000]}
+    body: {chance_pct: 80, repair_cents: [5000, 30000, 120000]}
+    interior: {chance_pct: 80, repair_cents: [5000, 25000, 100000]}
+    other: {chance_pct: 50, repair_cents: [5000, 20000, 80000]}
+  out_of_state_title_days: 7     # title issued by another state than the one the vehicle is in
+  # All-wheel and four-wheel drive: a transmission repair costs this much more (transfer case).
+  drivetrain_transmission_cost_factor: {awd: 1.15, "4wd": 1.15}
+  # Flood signs on a battery vehicle: the flood price factors are multiplied by this.
+  fuel_flood_price_factor: {electric: 0.85, hybrid: 0.92}
 
 router_training:
   status: PLACEHOLDER
   replace_with: Recorded outcomes (the same car's net on ACV and on Copart). With them these made-up cars are not needed (underscope train-router --data).
   # The MADE-UP cars the router model is trained on while there are no recorded outcomes
-  # (router.generate). Shares are not market shares. The app sends the rules reader's JSON, so
-  # most facts are unstated: `unstated` is how often each fact is "unknown", set from the
-  # reader's own test (reader session, 2026-11-16: errors are almost always "unknown").
+  # (router.generate). Shares are not market shares. Each car is built in full and labelled by
+  # the simulation on everything known about it; then facts are hidden from what the model
+  # sees, the way the reader's output hides them (router.mask).
+  # profiles: how complete the description is. sparse and medium hide each fact at the rate
+  # the reader's own output gives it (config/reader_given_rates.json, rebuilt with
+  # `underscope reader-rates`); needed gives every needed fact and hides helpful ones at the
+  # medium rate; full hides nothing.
+  profiles: {sparse: 0.45, medium: 0.25, needed: 0.15, full: 0.15}
   clean_value_dollars: [3000, 45000]        # log-uniform
   mileage: [5000, 220000]
   year: [2008, 2025]
   title_share: {clean: 0.80, rebuilt: 0.12, lemon: 0.08}   # titles that allow both marketplaces
+  seller_share: {dealer: 0.6, fleet: 0.2, lender: 0.2}   # never a private seller or an insurer: a rule decides those
+  out_of_state_title_share: 0.1
+  drivetrain_share: {fwd: 0.5, rwd: 0.15, awd: 0.25, "4wd": 0.1}
+  fuel_share: {gas: 0.82, diesel: 0.05, hybrid: 0.08, electric: 0.05}
   damaged_parts_geometric_p: 0.22           # number of damaged parts ~ geometric - 1
   replace_share: 0.4                        # of damaged parts
-  rest_fine_share: 0.7                      # undamaged parts stated fine (else unknown)
   comps_count: [3, 7]
   comps_ratio: {base: 0.72, per_damaged_part: 0.045, sd: 0.14, spread_sigma: 0.2}   # comps / clean value
-  app_repair_estimate_share: 0.7            # bodies that carry the page's repair estimate
+  reserve_ratio: [0.15, 0.6]                # seller's lowest price / clean value
+  app_repair_estimate_share: 0.5            # bodies that carry the page's repair estimate
+  seller_quote_share: 0.5                   # damaged cars that also have a seller's repair quote
   part_cost_dollars: {repairable: [150, 700], replace: [450, 2600]}
-  unstated:
-    run_status: 0.25
-    keys: 0.75
-    engine_condition: 0.70
-    transmission_condition: 0.70
-    catalytic_converter: 0.85
-    odometer_status: 0.80
-    title_in_hand: 0.60
-    lien: 0.70
-    flags: 0.40
-  # When stated, how often each value. Bad values are over-sampled so the model sees them.
+  storage_cost: {share: 0.1, dollars_per_day: [5, 40]}
+  sell_by: {share: 0.1, days: [7, 60]}
+  already_repaired: {"yes": 0.05, partly: 0.05, "no": 0.9}
+  complaints: {warning_light_share: 0.25, code_share: 0.15, symptom_share: 0.35}
+  # How often each value. The bad value of a fact (does_not_start, failed, missing...) is NOT
+  # set here: it is drawn at the chance `condition.unknown` gives it, so a fact hidden from the
+  # model is bad as often as the simulation assumes for an unstated fact. These shares split
+  # what is left among the other values.
   stated:
     run_status: {runs_and_drives: 0.5, starts: 0.2, does_not_start: 0.3}
     keys: {"yes": 0.8, "no": 0.2}
@@ -277,12 +380,11 @@ router_training:
     odometer_status: {actual: 0.8, not_actual: 0.1, exempt: 0.1}
     title_in_hand: {"yes": 0.75, "no": 0.25}
     lien: {none: 0.75, open: 0.25}
+    parts_missing: {"yes": 0.15, "no": 0.85}
+  # Flags with no entry in `condition.unknown` (the others use that chance).
   flag_true:
-    airbags_deployed: 0.30
-    frame_suspected: 0.15
-    fluid_leak: 0.15
-    flood_suspected: 0.12
-    fire_damage: 0.08
+    frame_suspected: 0.05
+    fluid_leak: 0.10
   model: {max_iter: 400, learning_rate: 0.08, threads: 4, held_out_share: 0.2}
 
 lanes:
@@ -305,6 +407,17 @@ lanes:
   # Part-out is a dismantler's own exit (teardown, months of parts sales). Most sellers don't
   # dismantle, and dismantlers already bid on Copart, so their demand is in Copart's price.
   seller_can_part_out: false
+  # Exits a kind of seller cannot use. ACV is a dealer-to-dealer marketplace, so a private
+  # owner cannot list there, and neither can an insurer: insurers sell their claim vehicles at
+  # salvage auction (about 80% of Copart's vehicles in fiscal 2024-2026 came from insurers,
+  # Copart 10-K FY2026). Added 2026-11-16 after a check on published Copart lots: the engine sent
+  # 88% of insurers' unbranded-title lots to ACV. UNCONFIRMED policy, like the branded-title rule.
+  seller_excludes:
+    individual: [repair_then_acv, acv_as_is]
+    insurer: [repair_then_acv, acv_as_is]
+  why_seller_excluded:
+    individual: "Private seller: ACV is a dealer-to-dealer marketplace (policy not confirmed with ACV)."
+    insurer: "Insurer: insurers sell claim vehicles at salvage auction, not dealer to dealer (policy not confirmed with ACV)."
 
 routing:
   status: PLACEHOLDER
@@ -313,6 +426,7 @@ routing:
   # clear Copart answer, in between a close call (RULES.md D01).
   clear_above: 0.70
   clear_below: 0.30
+  reserve_warn_below: 0.50   # chosen exit meets the seller's lowest price in fewer outcomes than this: input check
   model_acv_at: 0.50   # the router model sends the car to ACV at or above this p_acv
   min_comps: 3   # fewer comparable salvage sales than this (or no clean value): not enough data
 

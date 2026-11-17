@@ -1,18 +1,22 @@
 """Bridge from the Underscope web app to the engine.
 
-The app collects a VIN decode, a title, 25 part grades (from OpenAI photo grading or a
-reviewer), damage flags, decoded fault codes and market values. This module turns that into
-the engine's VehicleRecord + DamageFinding list, runs the decision, and says which marketplace
-to send the car to: ACV (repair then sell, or sell as-is) or Copart (salvage).
+The app sends what the reader took from the seller's description: a title, 25 part grades,
+damage flags, market values and the rest of the Assessment. This module turns that into the
+engine's VehicleRecord + DamageFinding list, runs the decision, and says which marketplace to
+send the car to: ACV (repair then sell, or sell as-is) or Copart (salvage).
 
 The body is the reader's Assessment (underscope.assessment, a mirror of reader/src/contract.ts)
 plus the app's repair estimate. The facts it adds beyond damage (run status, keys, engine,
 flood signs, liens...) become the vehicle's `condition`.
 
-Who decides: the title and the seller's lane limit first; then, when both marketplaces are
-allowed and the market values are there, the trained router model (underscope.router, TRAINED ON
-SIMULATED OUTCOMES); the dollar simulation otherwise. The simulation always supplies the dollar
-ranges, and a model answer it disagrees with is flagged for review.
+It runs on the Assessment alone: no VIN is needed, and a year, mileage or state the
+description does not give is filled from config `defaults` and said so in the notes.
+
+Who decides: the title, the kind of seller, the seller's lane limit and deadline first; then,
+when both marketplaces are allowed and the market values are there, the trained router model
+(underscope.router, TRAINED ON SIMULATED OUTCOMES); the dollar simulation otherwise. The
+simulation always supplies the dollar ranges, and a model answer it disagrees with is flagged
+for review.
 
 The question is the marketplace, so: the title and seller decide which exits are allowed
 (config `lanes`) before any money is compared; confidence is the chance ACV beats Copart, not
@@ -27,7 +31,7 @@ from __future__ import annotations
 from typing import Any
 
 from underscope import router
-from underscope.assessment import Assessment
+from underscope.assessment import GRADES, Assessment, expectations, precision_level
 from underscope.config import Assumptions, default_assumptions
 from underscope.decision import (
     LABEL,
@@ -38,171 +42,124 @@ from underscope.decision import (
     evaluate,
     simulate,
 )
-from underscope.models import DamageFinding, Panel, Path, VehicleRecord
+from underscope.intake import (  # noqa: F401  (TITLE, to_engine: used by callers and tests)
+    TITLE,
+    _usd,
+    _year,
+    to_engine,
+)
+from underscope.models import Path, VehicleRecord
 from underscope.valuation import copart_relist_ceiling, value_vehicle
-
-# App part -> (engine panel, side). Lights and grille ride on the bumpers, matching the engine
-# detector's prompt; parts the engine doesn't cost (mirrors, wheels, interior, engine bay,
-# underbody) are reported as notes or turned into inspection flags instead.
-PART_PANEL: dict[str, tuple[Panel, str | None]] = {
-    "front_bumper": (Panel.FRONT_BUMPER, "center"), "grille": (Panel.FRONT_BUMPER, "center"),
-    "left_headlight": (Panel.FRONT_BUMPER, "left"),
-    "right_headlight": (Panel.FRONT_BUMPER, "right"),
-    "rear_bumper": (Panel.REAR_BUMPER, "center"),
-    "tailgate_or_rear_doors": (Panel.REAR_BUMPER, "center"),
-    "left_taillight": (Panel.REAR_BUMPER, "left"), "right_taillight": (Panel.REAR_BUMPER, "right"),
-    "hood": (Panel.HOOD, "center"), "roof": (Panel.ROOF, "center"),
-    "windshield": (Panel.WINDSHIELD, "center"),
-    "left_front_fender": (Panel.FENDER, "left"), "right_front_fender": (Panel.FENDER, "right"),
-    "left_front_door": (Panel.DOOR, "left"), "right_front_door": (Panel.DOOR, "right"),
-    "left_rear_door": (Panel.DOOR, "left"), "right_rear_door": (Panel.DOOR, "right"),
-    "left_rear_quarter": (Panel.QUARTER_PANEL, "left"),
-    "right_rear_quarter": (Panel.QUARTER_PANEL, "right"),
-}  # fmt: skip
-NOT_COSTED = {"left_mirror", "right_mirror", "wheels_and_tires", "interior"}
-
-DAMAGED = ("repairable", "replace")  # app grades that become a finding (config `grades`)
-
-# Engine titles are clean/salvage/rebuilt. Flood and non-repairable are salvage brands;
-# a lemon brand survives repair like rebuilt. Unknown is treated as clean and noted.
-TITLE = {"clean": "clean", "salvage": "salvage", "rebuilt": "rebuilt", "flood": "salvage",
-         "non_repairable": "salvage", "lemon": "rebuilt", "unknown": "clean"}  # fmt: skip
 
 DESTINATION = {
     Path.REPAIR_THEN_ACV: "ACV", Path.ACV_AS_IS: "ACV",
     Path.COPART_SALVAGE: "Copart", Path.PART_OUT: "Parts buyer",
 }  # fmt: skip
 
-SEVERE = {"major", "critical"}
-POWERTRAIN = {"engine", "transmission"}
-
-
-def _tri(value: Any) -> bool | None:
-    return value if isinstance(value, bool) else None
-
-
-def to_engine(payload: dict[str, Any], a: Assumptions | None = None,
-              ) -> tuple[VehicleRecord, list[DamageFinding], list[str]]:  # fmt: skip
-    """App payload -> (vehicle, findings, notes). Raises ValueError on unusable input."""
-    g = (a or default_assumptions())["grades"]
-    notes: list[str] = []
-    condition = Assessment.model_validate(payload).condition()
-    vin = str(payload.get("vin") or "").strip().upper()
-    if len(vin) != 17:
-        raise ValueError("vin must be 17 characters")
-    v = payload.get("vehicle") or {}
-    values = payload.get("values") or {}
-    flags = payload.get("flags") or {}
-    grades = {g["part"]: g["grade"] for g in payload.get("grades") or [] if "part" in g}
-
-    title_in = payload.get("title_status") or "unknown"
-    title = TITLE.get(title_in, "clean")
-    if title_in == "unknown":
-        notes.append("Title not confirmed; treated as clean.")
-    elif TITLE.get(title_in) != title_in:
-        notes.append(f"{title_in.replace('_', '-')} title treated as {title} by the engine.")
-
-    findings: list[DamageFinding] = []
-    for part, grade in grades.items():
-        if grade not in DAMAGED:
-            continue
-        if part in PART_PANEL:
-            panel, side = PART_PANEL[part]
-            findings.append(DamageFinding(panel=panel, damage_type=g[grade]["damage_type"],
-                                          severity=g[grade]["severity"],
-                                          confidence=g["confidence"], side=side))  # fmt: skip
-        elif part in NOT_COSTED:
-            notes.append(f"{part.replace('_', ' ')} ({grade}) is not priced by the engine.")
-    if flags.get("frame_suspected") is True:
-        f = g["frame_suspected"]
-        findings.append(DamageFinding(panel=Panel.FRAME, damage_type=f["damage_type"],
-                                      severity=f["severity"], confidence=f["confidence"],
-                                      side="center"))  # fmt: skip
-        notes.append("Suspected frame damage added as a frame finding.")
-
-    under = grades.get("underbody")
-    undercarriage = (True if under in DAMAGED or flags.get("fluid_leak") is True
-                     else False if under == "fine" else None)  # fmt: skip
-
-    # Only codes the old decoder priced (severity, cost band) count here. The reader's codes
-    # are {code, status}: what the seller mentioned, not a scan, so they clear nothing.
-    codes = [c for c in payload.get("codes") or []
-             if isinstance(c, dict) and "severity" in c and c.get("source") != "invalid"]
-    engine_audio: bool | None
-    if "codes" not in payload or (condition is not None and not codes):
-        engine_audio = None  # no scan: unknown, the engine reserves for hidden damage
-    else:
-        engine_audio = any(c.get("severity") in SEVERE and c.get("system") in POWERTRAIN
-                           for c in codes) or grades.get("engine_bay") == "replace"  # fmt: skip
-    if condition and condition.engine == condition.transmission == "ok":
-        engine_audio = False  # the seller says both are fine: no allowance for an unknown
-    mech = None
-    if codes:
-        lo = sum(int(c.get("cost_low") or 0) for c in codes)
-        hi = sum(int(c.get("cost_high") or 0) for c in codes)
-        mech = (lo * 100, hi * 100)
-        notes.append(f"{len(codes)} fault code(s) add ${lo:,} to ${hi:,} of mechanical repair.")
-
-    # One repair cost: when the app sends its repair estimate (parts table + fault codes,
-    # widened for unknowns), the engine uses it instead of its placeholder panel costs.
-    repair = payload.get("repair") or {}
-    override = None
-    if repair.get("high") is not None and repair.get("low") is not None:
-        lo, hi = sorted((int(repair["low"]), int(repair["high"])))
-        ex = int(repair.get("expected") or (lo + hi) // 2)
-        override = (lo * 100, min(max(ex, lo), hi) * 100, hi * 100)
-        mech = None  # fault codes are already inside the app's estimate
-        notes = [n for n in notes if "of mechanical repair" not in n]
-        notes.append(f"Repair estimate ${lo:,} to ${hi:,} taken from the app (parts, labor, "
-                     "fault codes, allowance for unknowns); engine placeholder costs not used.")
-
-    clean = values.get("clean_wholesale")
-    comps = [int(x) for x in values.get("salvage_comps") or [] if int(x) > 0]
-    if not clean:
-        notes.append("No clean value given; the engine uses its placeholder depreciation curve.")
-
-    vehicle = VehicleRecord(
-        vin=vin,
-        year=int(v.get("year") or 2020),
-        make=str(v.get("make") or "Unknown"),
-        model=str(v.get("model") or ""),
-        mileage=max(0, int(payload.get("mileage") or 0)),
-        region=str(payload.get("region") or "NY"),
-        title_status=title,
-        undercarriage_damage=undercarriage,
-        engine_audio_abnormal=engine_audio,
-        clean_value_cents=int(clean) * 100 if clean else None,
-        salvage_comps_cents=[c * 100 for c in comps] or None,
-        mechanical_repair_cents=mech,
-        repair_override_cents=override,
-        condition=condition,
-    )
-    return vehicle, findings, notes
-
 
 def eligible_paths(title_in: str, a: Assumptions, lanes_allowed: list[str] | None = None,
+                   seller_type: str | None = None,
                    ) -> tuple[tuple[Path, ...], list[dict]]:  # fmt: skip
-    """Exits this title allows (config `lanes`) within the marketplaces the seller allows
-    (`lanes_allowed`, RULES.md S01), and why each other exit is out."""
+    """Exits the title allows (config `lanes.by_title`), minus those this kind of seller
+    cannot use (`lanes.seller_excludes`), within the marketplaces the seller allows
+    (`lanes_allowed`, RULES.md S01). Also why each other exit is out."""
     lanes = a["lanes"]
     by_title = {Path(p) for p in lanes["by_title"].get(title_in, lanes["by_title"]["clean"])}
     if lanes.get("seller_can_part_out"):
         by_title.add(Path.PART_OUT)
-    seller = {x.lower() for x in lanes_allowed or []}
-    allowed = {p for p in by_title if not seller or DESTINATION[p].lower() in seller}
-    # A limit that leaves nothing the title allows cannot be met; the title wins.
-    allowed = allowed or by_title
+    barred = {Path(p) for p in lanes.get("seller_excludes", {}).get(seller_type or "", [])}
+    # A rule that leaves no exit cannot be met; the earlier rule wins.
+    by_seller = (by_title - barred) or by_title
+    wanted = {x.lower() for x in lanes_allowed or []}
+    allowed = {p for p in by_seller if not wanted or DESTINATION[p].lower() in wanted}
+    allowed = allowed or by_seller
     name = title_in.replace("_", "-").capitalize()
     why_title = lanes.get("why_excluded", {}).get(title_in) or (
         f"{name} title: exit not allowed (config lanes.by_title).")
-    excluded = [{
-        "path": p.value, "label": LABEL[p], "destination": DESTINATION[p],
-        "reason": ("Part-out is a dismantler's own exit; dismantlers already bid on Copart, so "
-                   "their demand is in Copart's price." if p == Path.PART_OUT
-                   else why_title if p not in by_title
-                   else f"The seller does not allow {DESTINATION[p]}."),
-    } for p in PATHS if p not in allowed]  # fmt: skip
+    why_seller = lanes.get("why_seller_excluded", {}).get(seller_type or "") or (
+        f"A {seller_type} seller cannot use this exit (config lanes.seller_excludes).")
+
+    def reason(p: Path) -> str:
+        if p == Path.PART_OUT:
+            return ("Part-out is a dismantler's own exit; dismantlers already bid on Copart, so "
+                    "their demand is in Copart's price.")
+        if p not in by_title:
+            return why_title
+        return why_seller if p not in by_seller else f"The seller does not allow {DESTINATION[p]}."
+
+    excluded = [{"path": p.value, "label": LABEL[p], "destination": DESTINATION[p],
+                 "reason": reason(p)} for p in PATHS if p not in allowed]  # fmt: skip
     return tuple(p for p in PATHS if p in allowed), excluded
+
+
+def _one_marketplace(paths: tuple[Path, ...]) -> bool:
+    return len({DESTINATION[p] for p in paths}) == 1
+
+
+def expected_days(vehicle: VehicleRecord, val: Any, a: Assumptions) -> dict[Path, float]:
+    """Expected days until each exit has sold (repair, selling, title paperwork)."""
+    tm = a["timing"]
+    extra = sum(e.chance * e.days for e in val.effects)
+    fix = 0 if vehicle.repair_done else tm["repair_days"][1]
+    return {p: tm["days_to_sell"][p.value][1] + extra + (fix if p == Path.REPAIR_THEN_ACV else 0)
+            for p in PATHS}  # fmt: skip
+
+
+def exits(s: Assessment, title_in: str, vehicle: VehicleRecord, val: Any, a: Assumptions,
+          ) -> tuple[tuple[Path, ...], list[dict], str | None, list[str]]:  # fmt: skip
+    """The exits left after every rule, the excluded ones with reasons, which rule left a single
+    marketplace (None when two remain), and review reasons the rules raise.
+    Order: title, kind of seller, the seller's lane limit, the seller's deadline."""
+    seller = None if s.seller_type == "unknown" else s.seller_type
+    paths, excluded = eligible_paths(title_in, a, s.lanes_allowed, seller)
+    rule = None
+    for name, stage in (("title_rule", eligible_paths(title_in, a)[0]),
+                        ("seller_rule", eligible_paths(title_in, a, None, seller)[0]),
+                        ("seller_limit", paths)):  # fmt: skip
+        if rule is None and _one_marketplace(stage):
+            rule = name
+    reasons: list[str] = []
+    deadline = s.sell_by_days
+    if deadline is not None and deadline > 0:
+        days = expected_days(vehicle, val, a)
+        late = [p for p in paths if days[p] > deadline]
+        if len(late) == len(paths):
+            fastest = min(paths, key=lambda p: (days[p], PATHS.index(p)))
+            late = [p for p in paths if p != fastest]
+            reasons.append(f"No exit is expected to sell within the seller's {deadline:g} days; "
+                           f"the fastest ({LABEL[fastest]}, about {days[fastest]:.0f} days) is "
+                           "kept.")  # fmt: skip
+        excluded = excluded + [{
+            "path": p.value, "label": LABEL[p], "destination": DESTINATION[p],
+            "reason": f"About {days[p]:.0f} days to sell this way; the seller has {deadline:g}.",
+        } for p in late]  # fmt: skip
+        paths = tuple(p for p in paths if p not in late)
+        if rule is None and _one_marketplace(paths):
+            rule = "seller_limit"
+    return paths, excluded, rule, reasons
+
+
+def _unmet_limit(s: Assessment, title_in: str, a: Assumptions) -> str | None:
+    """The sentence for a seller's lane limit that the title or the kind of seller rules out."""
+    wanted = [x.lower() for x in s.lanes_allowed or []]
+    if not wanted:
+        return None
+    seller = None if s.seller_type == "unknown" else s.seller_type
+    by_title = eligible_paths(title_in, a)[0]
+    left = eligible_paths(title_in, a, None, seller)[0]
+    if any(DESTINATION[p].lower() in wanted for p in left):
+        return None
+    names = {"acv": "ACV", "copart": "Copart"}
+    only = " and ".join(names.get(x, x) for x in wanted)
+    if not any(DESTINATION[p].lower() in wanted for p in by_title):
+        why = f"a {title_in.replace('_', '-')} title cannot be listed there"
+    else:
+        sellers = {"individual": "a private seller", "insurer": "an insurer"}
+        who = sellers.get(seller or "", "this seller")
+        why = f"{who} cannot list there (dealer-to-dealer; policy not confirmed)"
+    exit_ = " and ".join(sorted({DESTINATION[p] for p in left}))
+    return (f"The seller allows only {only}, but {why}; {exit_} is the only exit. "
+            "Confirm with the seller.")
 
 
 def _confidence(p_acv: float, a: Assumptions) -> str:
@@ -210,46 +167,74 @@ def _confidence(p_acv: float, a: Assumptions) -> str:
     return "clear" if p_acv >= r["clear_above"] or p_acv <= r["clear_below"] else "close_call"
 
 
+# Condition fact -> where the reader keeps the seller's words for it (Assessment.evidence).
+EVIDENCE_PATH = {"engine": "engine_condition", "transmission": "transmission_condition",
+                 "flood_suspected": "flags.flood_suspected", "fire_damage": "flags.fire_damage",
+                 "airbags_deployed": "flags.airbags_deployed"}  # fmt: skip
+
+
+def nothing_to_go_on(s: Assessment) -> bool:
+    """No title, no values, no graded part, no run status and no damage area: no answer."""
+    graded = any(isinstance(g, dict) and g.get("grade") in GRADES for g in s.grades)
+    values = s.values.get("clean_wholesale") or s.values.get("salvage_comps")
+    return (s.title_status == "unknown" and not values and not graded
+            and s.run_status == "unknown" and s.primary_damage == "unknown")  # fmt: skip
+
+
 def _route_title(payload: dict[str, Any], title_in: str, a: Assumptions,
-                 model: router.RouterModel | None = None) -> dict[str, Any]:  # fmt: skip
-    """Route the car for one known title."""
+                 model: router.RouterModel | None = None, bare: bool = False,
+                 ) -> dict[str, Any]:  # fmt: skip
+    """Route the car for one known title. `bare`: the description gives nothing to go on."""
     vehicle, findings, notes = to_engine(payload, a)
     assessment = Assessment.model_validate(payload)
-    paths, excluded = eligible_paths(title_in, a, assessment.lanes_allowed)
-    rec = evaluate(vehicle, findings, a, paths)
     val = value_vehicle(vehicle, findings, a)
+    paths, excluded, rule, rule_reasons = exits(assessment, title_in, vehicle, val, a)
+    rec = evaluate(vehicle, findings, a, paths)
     # Same seed and inputs as evaluate's run, so these are the same draws.
-    p_acv = destination_share(simulate(vehicle, val, a).nets, paths)
-    destinations = {DESTINATION[p] for p in paths}
+    nets = simulate(vehicle, val, a).nets
+    p_acv = destination_share(nets, paths)
     dollars = lambda c: round(c / 100)  # noqa: E731
 
     values = payload.get("values") or {}
-    comps = [x for x in values.get("salvage_comps") or [] if int(x) > 0]
+    comps = [c for c in map(_usd, values.get("salvage_comps") or []) if c and c > 0]
     missing = []
-    if len(destinations) > 1:  # with one marketplace allowed, data can't change the destination
-        if not values.get("clean_wholesale"):
+    if rule is None:  # with one marketplace allowed, data can't change the destination
+        if not _usd(values.get("clean_wholesale")):
             missing.append("clean wholesale value")
+            if _year(payload) is None:
+                missing.append("vehicle year (or a VIN)")
         if len(comps) < a["routing"]["min_comps"]:
             missing.append(f"at least {a['routing']['min_comps']} comparable salvage sales")
-    # Who decides. One marketplace allowed: the rule. Both allowed and the values are there:
-    # the trained model. Otherwise (no model, or not enough data): the simulation.
+    # Who decides. One marketplace allowed: the rule that left it. Both allowed and the values
+    # are there: the trained model. Otherwise (no model, or not enough data): the simulation.
     winner, p_sim = rec.winner, p_acv
-    by_title = eligible_paths(title_in, a)[0]
-    decided_by = ("simulation" if len(destinations) > 1 else
-                  "title_rule" if len({DESTINATION[p] for p in by_title}) == 1 else "seller_limit")
-    if decided_by == "simulation" and not missing and model is not None:
+    decided_by = rule or "simulation"
+    bare = bare and rule is None  # a rule's answer does not need the missing facts
+    # With the clean value and the comps given, the simulation prices the car from the seller's
+    # own numbers and decides. Without them it runs on placeholders, so the model answers: it
+    # is trained on input with the gaps the reader's output has. Measured 2026-11-16 on 2,890
+    # fresh made-up cars against the full-information answer: every fact given, simulation
+    # 99.4% and model 91.0%; clean value missing, simulation 47.7% and model 69.0%.
+    if decided_by == "simulation" and model is not None and not bare and missing:
         decided_by = "model"
         p_acv = model.p_acv(router.features(assessment, a))
         dest = "ACV" if p_acv >= a["routing"]["model_acv_at"] else "Copart"
         winner = next(o.path for o in rec.options if DESTINATION[o.path] == dest)
     disagree = DESTINATION[winner] != DESTINATION[rec.winner]
-    confidence = "insufficient" if missing else _confidence(p_acv, a)
+    insufficient = bare or (bool(missing) and decided_by != "model")
+    confidence = "insufficient" if insufficient else _confidence(p_acv, a)
     if disagree and confidence == "clear":
         confidence = "close_call"
 
     # The question is the marketplace: two ACV exits overlapping doesn't make it a hard call.
-    reasons = [r for r in rec.review_reasons if not r.startswith(OVERLAP_REASON)]
-    if confidence == "insufficient":
+    reasons = [r for r in rec.review_reasons if not r.startswith(OVERLAP_REASON)] + rule_reasons
+    if assessment.already_repaired == "partly":
+        reasons.append("The seller says the damage is partly repaired; the repair estimate "
+                       "still counts all of it. Confirm what is left to do.")
+    if bare:
+        reasons.insert(0, "The description gives nothing to go on: no title, no values, no "
+                          "damaged part, no run status and no damage area.")
+    elif confidence == "insufficient":
         reasons.insert(0, f"Not enough market data to choose between ACV and Copart "
                           f"({', '.join(missing)} missing); the engine filled in placeholders.")
     elif disagree:
@@ -261,6 +246,12 @@ def _route_title(payload: dict[str, Any], title_in: str, a: Assumptions,
         reasons.insert(0, f"Close call between ACV and Copart: ACV comes out ahead in "
                           f"{p_acv:.0%} of {by}.")
 
+    # A lane limit the seller set that an earlier rule makes impossible is never dropped
+    # silently: the destination stands, and a person confirms it with the seller.
+    unmet = _unmet_limit(assessment, title_in, a)
+    if unmet:
+        reasons.insert(0, unmet)
+
     checks = []
     if Path.ACV_AS_IS in paths and vehicle.salvage_comps_cents:
         ceiling = copart_relist_ceiling(val, a)
@@ -271,19 +262,39 @@ def _route_title(payload: dict[str, Any], title_in: str, a: Assumptions,
                 f"({_dollars(val.salvage_value.expected)}) and relisting it on ACV "
                 f"({_dollars(ceiling)} with fees, transport and margin). Check that the comps "
                 "match this car's title and damage; the as-is price is a placeholder formula.")
+    # The seller's lowest acceptable price and the price paid: reported per exit, never a rule.
+    reserve, paid = _usd(values.get("reserve_price")), _usd(values.get("purchase_price"))
+    meets = {p: float((nets[p] >= reserve * 100).mean()) for p in paths} if reserve else {}
+    if reserve and meets[winner] < a["routing"]["reserve_warn_below"]:
+        checks.append(f"{LABEL[winner].capitalize()} nets the seller's lowest price of "
+                      f"${reserve:,} or more in only {meets[winner]:.0%} of simulated outcomes.")
 
     answer = rec.answer
     if len(paths) == 1 and excluded:
-        answer = f"{excluded[0]['reason']} {rec.answer}"
+        why = next((e["reason"] for e in excluded if e["path"] != Path.PART_OUT.value),
+                   excluded[0]["reason"])  # fmt: skip
+        answer = f"{why} {rec.answer}"
     if disagree:
         answer = (f"{DESTINATION[winner]} by the model, {DESTINATION[rec.winner]} by the dollar "
                   f"simulation: a close call. {rec.answer}")
+    if unmet:
+        answer = f"{unmet} {answer}"
     if decided_by == "model":
         notes = notes + ["Marketplace chosen by the router model, which is trained on simulated "
                          "outcomes, not real sales (engine/reports/router.md)."]  # fmt: skip
+    rough = not _usd(values.get("clean_wholesale"))
+    if rough:
+        notes = notes + ["The dollar ranges are rough: without a clean value they rest on the "
+                         "engine's placeholder value curve."]  # fmt: skip
     for e in val.effects:
+        if e.fact == "signal":
+            notes.append(f"From the description, {e.value}: counted as a repair or delay in "
+                         f"{e.chance:.0%} of outcomes.")
+            continue
         what = f"{e.fact.replace('_', ' ')}: {e.value.replace('_', ' ')}"
-        notes.append(f"From the description, {what}." if e.chance == 1 else
+        quote = assessment.evidence.get(EVIDENCE_PATH.get(e.fact, e.fact))
+        said = f' ("{quote}")' if isinstance(quote, str) and quote else ""
+        notes.append(f"From the description{said}, {what}." if e.chance == 1 else
                      f"Not stated, {what} assumed in {e.chance:.0%} of outcomes.")
     return {
         "destination": DESTINATION[winner],
@@ -294,7 +305,7 @@ def _route_title(payload: dict[str, Any], title_in: str, a: Assumptions,
         "decided_by": decided_by,
         "model": model.summary() if decided_by == "model" else None,
         "confidence": confidence,
-        "verify_first": None,
+        "verify_first": "Confirm the seller's marketplace limit" if unmet else None,
         "missing": missing,
         "answer": answer,
         "explanation": rec.explanation,
@@ -306,8 +317,11 @@ def _route_title(payload: dict[str, Any], title_in: str, a: Assumptions,
             "path": o.path.value, "label": LABEL[o.path], "destination": DESTINATION[o.path],
             "expected": dollars(o.expected_cents), "p10": dollars(o.p10_cents),
             "p50": dollars(o.p50_cents), "p90": dollars(o.p90_cents),
+            "p_meets_reserve": round(meets[o.path], 3) if reserve else None,
+            "vs_purchase": dollars(o.expected_cents) - paid if paid else None,
         } for o in rec.options],  # fmt: skip
         "excluded": excluded,
+        "ranges_are_rough": rough,
         "input_checks": checks,
         "inputs": {"findings": len(findings), "title": vehicle.title_status.value,
                    "undercarriage_damage": vehicle.undercarriage_damage,
@@ -319,6 +333,81 @@ def _route_title(payload: dict[str, Any], title_in: str, a: Assumptions,
 
 
 RANK = {"clear": 0, "close_call": 1, "insufficient": 2}
+# Fields whose two readings (the reader's `conflicts`) make the decision less certain.
+DECISION_FIELDS = ("title_status", "run_status", "seller_type", "lanes_allowed", "keys",
+                   "engine_condition", "transmission_condition")  # fmt: skip
+DECISION_PREFIXES = ("flags.", "grades.", "values.")
+
+
+def _reader_meta(out: dict[str, Any], payload: dict[str, Any],
+                 model: router.RouterModel | None) -> dict[str, Any]:  # fmt: skip
+    """What the reader says about its own reading: how much of what it expected was given (the
+    precision of the answer), what to ask the seller, and fields it read two ways."""
+    s = Assessment.model_validate(payload)
+    v = s.vehicle
+    out["reader"] = s.reader
+    out["vehicle"] = {"vin": s.vin, **{k: v.get(k) for k in ("year", "make", "model", "trim")}}
+    out["reader_missing"], out["could_add"] = s.missing, s.could_add
+    out["questions"], out["not_read"] = s.questions, s.additional
+
+    expected = s.expected or expectations(s)
+    open_ = [e for e in expected if not e.get("given")]
+    needed = [e for e in open_ if e.get("need") == "needed"]
+    level = (s.precision or {}).get("level")
+    if level not in ("full", "reduced", "low"):
+        # A body without the reader's own count (the page before the reader sent it): low only
+        # when the engine itself is missing what it needs.
+        level = ("low" if out["missing"] else
+                 "full" if precision_level(expected) == "full" else "reduced")
+    note = (s.precision or {}).get("note")
+    if not note and open_:
+        note = (f"The answer wouldn't be as precise: {len(open_)} of the {len(expected)} facts "
+                "the reader was expecting were not given"
+                + (f" ({len(needed)} of them needed for the decision)." if needed else "."))
+    # How often the engine, answering as it does here, named the same marketplace as the
+    # simulation with everything known (router.policy_check on fresh made-up cars). An older
+    # model file has only the model's own held-out figure.
+    agreement = None
+    answered = out["decided_by"] in ("model", "simulation") and out["confidence"] != "insufficient"
+    if answered and model is not None:
+        meta = getattr(model, "meta", None) or {}
+        measured = meta.get("deployed") or (
+            meta.get("held_out", {}) if out["decided_by"] == "model" else {})
+        agreement = (measured.get("by_level", {}).get(level) or {}).get("agreement")
+    if agreement is not None:
+        note = ((note + " ") if note else "") + (
+            f"With this much information the engine matched the full-information answer in "
+            f"{agreement:.0%} of test cars.")
+    out["precision"] = {
+        "level": level, "note": note, "agreement": agreement,
+        "not_given": [e.get("ask") for e in needed]
+                     + [e.get("ask") for e in open_ if e.get("need") != "needed"],
+    }  # fmt: skip
+    # A needed fact is missing: the marketplace can still be named, never as a clear call.
+    # (A rule's answer does not depend on the missing facts, so it keeps its confidence.)
+    by_rule = out["decided_by"] in ("title_rule", "seller_rule", "seller_limit")
+    if level == "low" and out["confidence"] == "clear" and not by_rule:
+        out["confidence"] = "close_call"
+        out["review_reasons"] = out["review_reasons"] + [
+            "Facts needed for the decision are not given, so this is not a clear call."]
+        out["needs_human_review"] = True
+    if s.questions:
+        out["notes"] = out["notes"] + [f"The reader has {len(s.questions)} open question(s) for "
+                                       "the seller (see questions)."]  # fmt: skip
+
+    for c in s.conflicts:
+        field = str(c.get("field") or "")
+        if field not in DECISION_FIELDS and not field.startswith(DECISION_PREFIXES):
+            continue
+        name = field.split(".")[-1].replace("_", " ")
+        out["review_reasons"] = out["review_reasons"] + [
+            f"The description can be read two ways for {name}: {c.get('kept')} (used) or "
+            f"{c.get('dropped')}."]  # fmt: skip
+        out["needs_human_review"] = True
+        if out["confidence"] == "clear":
+            out["confidence"] = "close_call"
+        out["verify_first"] = out["verify_first"] or f"Confirm {name}"
+    return out
 
 
 def route(payload: dict[str, Any], a: Assumptions | None = None,
@@ -330,14 +419,25 @@ def route(payload: dict[str, Any], a: Assumptions | None = None,
     if a is None and model is None:
         model = router.load_model()
     a = a or default_assumptions()
+    return _reader_meta(_route(payload, a, model), payload, model)
+
+
+def _route(payload: dict[str, Any], a: Assumptions,
+           model: router.RouterModel | None) -> dict[str, Any]:  # fmt: skip
     title_in = payload.get("title_status") or "unknown"
+    if title_in not in TITLE:
+        title_in = "unknown"
     if title_in != "unknown":
         return _route_title(payload, title_in, a, model)
+    bare = nothing_to_go_on(Assessment.model_validate(payload))
 
     # Unknown title (RULES.md T11): decide for a clean and a salvage title. If both send the
     # car to the same marketplace the answer stands; otherwise the title must be checked first.
-    clean = _route_title({**payload, "title_status": "clean"}, "clean", a, model)
-    salvage = _route_title({**payload, "title_status": "salvage"}, "salvage", a, model)
+    clean = _route_title({**payload, "title_status": "clean"}, "clean", a, model, bare)
+    if bare:  # nothing to go on: no branch means anything, so no title question either
+        clean["inputs"] = {**clean["inputs"], "title": "unknown"}
+        return clean
+    salvage = _route_title({**payload, "title_status": "salvage"}, "salvage", a, model, bare)
     out = {**clean, "title_branches": {
         k: {key: b[key] for key in ("destination", "winner", "p_acv", "confidence")}
         for k, b in (("clean", clean), ("salvage", salvage))}}  # fmt: skip

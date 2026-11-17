@@ -11,11 +11,12 @@ import yaml
 from underscope.models import DamageType, Panel, TitleStatus
 from underscope.models import Path as DispPath
 
-DEFAULT_PATH = Path(__file__).resolve().parents[2] / "config" / "assumptions.yaml"
+ROOT = Path(__file__).resolve().parents[2]   # the engine/ folder
+DEFAULT_PATH = ROOT / "config" / "assumptions.yaml"
 REQUIRED_SECTIONS = (
     "base_value", "repair_cost", "market", "fees", "transport", "timing", "title",
     "total_loss", "parts", "hidden_damage", "simulation", "lanes", "routing", "condition",
-    "grades", "router_training",
+    "grades", "router_training", "defaults", "damage_areas", "signals",
 )  # fmt: skip
 
 

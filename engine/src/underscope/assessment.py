@@ -49,7 +49,8 @@ LANES = ("acv", "copart")
 # The keys that carry a Condition fact. A body with none of them (the page before the reader
 # sent the full Assessment) gets no condition at all, so its numbers do not change.
 CONDITION_KEYS = ("run_status", "keys", "engine_condition", "transmission_condition",
-                  "catalytic_converter", "odometer_status", "title_in_hand", "lien")  # fmt: skip
+                  "catalytic_converter", "odometer_status", "title_in_hand", "lien",
+                  "parts_missing")  # fmt: skip
 CONDITION_FLAGS = ("flood_suspected", "fire_damage")
 
 
@@ -105,8 +106,12 @@ class Assessment(BaseModel):
     questions: list[str] = Field(default_factory=list)
     additional: list[str] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    # What the reader was expecting and how much of it the description gave (contract.ts
+    # EXPECTED / listMissing). Absent on older bodies: `expectations` below recomputes it.
+    expected: list[dict[str, Any]] = Field(default_factory=list)
+    precision: dict[str, Any] | None = None
 
-    # The page adds its repair estimate from /api/decide: {low, high, expected?} in dollars.
+    # The page adds its repair estimate (/api/repair-estimate): {low, high, expected?} in dollars.
     repair: dict[str, Any] | None = None
 
     @field_validator(*ENUMS, mode="before")
@@ -131,7 +136,7 @@ class Assessment(BaseModel):
         return v if isinstance(v, dict) else {}
 
     @field_validator("grades", "warning_lights", "codes", "symptoms", "missing", "could_add",
-                     "questions", "additional", "conflicts", mode="before")  # fmt: skip
+                     "questions", "additional", "conflicts", "expected", mode="before")  # fmt: skip
     @classmethod
     def _list(cls, v: Any) -> list:
         return v if isinstance(v, list) else []
@@ -158,4 +163,89 @@ class Assessment(BaseModel):
             odometer_status=known("odometer_status"),
             title_in_hand=_tri(self.title_in_hand),
             lien=known("lien"),
+            parts_missing=_tri(self.parts_missing),
+            drivetrain=known("drivetrain"),
+            fuel_type=known("fuel_type"),
         )
+
+
+def _graded(s: Assessment) -> int:
+    return sum(isinstance(g, dict) and g.get("grade") in GRADES for g in s.grades)
+
+
+def _stated(field: str):
+    return lambda s: getattr(s, field) not in ("unknown", None)
+
+
+def _flag(name: str):
+    return lambda s: isinstance(s.flags.get(name), bool)
+
+
+def _value(name: str):
+    return lambda s: s.values.get(name) is not None
+
+
+# The facts the reader expects, in page order: (field, need, ask, given, applies). A mirror of
+# EXPECTED in reader/src/contract.ts; tests/test_reader_fixture.py checks it against the
+# reader's own output.
+EXPECTED = (
+    ("title_status", "needed",
+     "the title status (clean, salvage, rebuilt, flood, non-repairable or lemon)",
+     _stated("title_status"), None),
+    ("values.clean_wholesale", "needed",
+     "the clean wholesale value (same year, model and mileage, no damage)",
+     _value("clean_wholesale"), None),
+    ("values.salvage_comps", "needed", "sold prices of at least 3 similar damaged vehicles",
+     lambda s: len(s.values.get("salvage_comps") or []) >= 3, None),
+    ("mileage", "needed", "the mileage", _stated("mileage"), None),
+    ("grades", "needed", 'what is damaged, part by part, or "no damage"',
+     lambda s: _graded(s) > 0, None),
+    ("grades.rest", "needed",
+     'whether the rest of the vehicle is undamaged ("everything else is fine")',
+     lambda s: _graded(s) == len(PARTS) or "grades.rest" in s.evidence,
+     lambda s: _graded(s) > 0),
+    ("flags.airbags_deployed", "needed", "whether the airbags deployed",
+     _flag("airbags_deployed"), None),
+    ("flags.frame_suspected", "needed", "whether the frame is damaged",
+     _flag("frame_suspected"), None),
+    ("flags.fluid_leak", "needed", "whether any fluids are leaking", _flag("fluid_leak"), None),
+    ("seller_type", "helpful",
+     "who is selling (dealer, insurer, fleet, lender or private owner)",
+     _stated("seller_type"), None),
+    ("title_in_hand", "helpful", "whether the title is in hand", _stated("title_in_hand"), None),
+    ("lien", "helpful", "whether there is an open lien", _stated("lien"), None),
+    ("odometer_status", "helpful", "whether the mileage is actual", _stated("odometer_status"),
+     _stated("mileage")),
+    ("run_status", "helpful", "whether it runs and drives", _stated("run_status"), None),
+    ("keys", "helpful", "whether the keys are with it", _stated("keys"), None),
+    ("engine_condition", "helpful", "the engine condition", _stated("engine_condition"), None),
+    ("transmission_condition", "helpful", "the transmission condition",
+     _stated("transmission_condition"), None),
+    ("primary_damage", "helpful",
+     "where the main damage is (front, rear, side, hail, water, fire...)",
+     _stated("primary_damage"), None),
+    ("flags.flood_suspected", "helpful", "whether there are any flood signs",
+     _flag("flood_suspected"), None),
+    ("catalytic_converter", "helpful", "whether the catalytic converter is present",
+     _stated("catalytic_converter"), None),
+    ("values.repair_estimate", "helpful", "a repair quote, if you have one",
+     _value("repair_estimate"), None),
+    ("values.reserve_price", "helpful", "the lowest price you would accept",
+     _value("reserve_price"), None),
+    ("region", "helpful", "the state the vehicle is in", _stated("region"), None),
+)
+
+
+def expectations(s: Assessment) -> list[dict[str, Any]]:
+    """Every fact the reader expects for this car: {field, need, given, ask}."""
+    return [{"field": field, "need": need, "given": bool(given(s)), "ask": ask}
+            for field, need, ask, given, applies in EXPECTED
+            if applies is None or applies(s)]  # fmt: skip
+
+
+def precision_level(expected: list[dict[str, Any]]) -> str:
+    """low: a needed fact is not given; reduced: only helpful ones are missing; full: none."""
+    missing = [e for e in expected if not e.get("given")]
+    if any(e.get("need") == "needed" for e in missing):
+        return "low"
+    return "reduced" if missing else "full"

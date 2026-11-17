@@ -54,6 +54,14 @@
       "title": "Evidence",
       "type": "object"
     },
+    "expected": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Expected",
+      "type": "array"
+    },
     "flags": {
       "additionalProperties": true,
       "title": "Flags",
@@ -139,6 +147,19 @@
       ],
       "default": "unknown",
       "title": "Parts Missing"
+    },
+    "precision": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Precision"
     },
     "primary_damage": {
       "default": "unknown",

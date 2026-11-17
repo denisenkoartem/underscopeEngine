@@ -32,12 +32,21 @@ class Effect:
     days: int = 0  # holding days added to every exit
 
 
+def _scaled(r: Range | None, k: float, cap: float | None = None) -> Range | None:
+    if r is None:
+        return None
+    return Range(*(x * k if cap is None else min(cap, x * k) for x in r))
+
+
 def condition_effects(vehicle: VehicleRecord, a: Assumptions) -> tuple[Effect, ...]:
-    """Effects of vehicle.condition, in the config's fact order. None when there is no condition."""
+    """Effects of vehicle.condition (in the config's fact order), then of vehicle.signals."""
+    signals = tuple(
+        Effect("signal", s.name, s.chance, Range(*s.repair_cents) if s.repair_cents else None,
+               days=s.days) for s in vehicle.signals)  # fmt: skip
     c = vehicle.condition
     if c is None:
-        return ()
-    cfg = a["condition"]
+        return signals
+    cfg, sg = a["condition"], a["signals"]
     cause_known = "failed" in (c.engine, c.transmission)
     out = []
     for fact, by_value in cfg["effects"].items():
@@ -58,10 +67,19 @@ def condition_effects(vehicle: VehicleRecord, a: Assumptions) -> tuple[Effect, .
             rng["repair_cents"] = None  # the failed engine or transmission is the repair
         if vehicle.salvage_comps_cents:
             rng["copart"] = None  # comps are taken to match the car
+        if fact == "catalytic_converter" and c.fuel_type == "electric":
+            continue  # a battery vehicle has no catalytic converter
+        if fact == "transmission":  # all-wheel drive: the transfer case is part of the job
+            k = sg["drivetrain_transmission_cost_factor"].get(c.drivetrain or "", 1.0)
+            rng["repair_cents"] = _scaled(rng["repair_cents"], k)
+        if fact == "flood_suspected":  # water in a battery pack
+            k = sg["fuel_flood_price_factor"].get(c.fuel_type or "", 1.0)
+            for kind in ("acv_as_is", "repaired", "copart"):
+                rng[kind] = _scaled(rng[kind], k, cap=1.0)
         out.append(Effect(fact, value, chance, rng["repair_cents"], rng["acv_as_is"],
                           rng["repaired"], rng["copart"], rng["tow_cents"],
                           int(e.get("days", 0))))  # fmt: skip
-    return tuple(out)
+    return tuple(out) + signals
 
 
 @dataclass(frozen=True)

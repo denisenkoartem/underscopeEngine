@@ -268,10 +268,10 @@ def test_adjuster_answer_says_total_loss_or_not():
 
 def test_adjuster_borderline_answer_is_not_contradictory():
     import json
+    from pathlib import Path as FsPath
 
-    from underscope.data import FIXTURE_DIR
-
-    v = VehicleRecord(**json.loads((FIXTURE_DIR / "borderline_writeoff.json").read_text()))
+    fixture = FsPath(__file__).parent / "fixtures" / "borderline_writeoff.json"
+    v = VehicleRecord(**json.loads(fixture.read_text()))
     r = evaluate(v, v.findings)
     assert r.answer.startswith("Borderline total loss")
     assert "below the 75%" in r.answer

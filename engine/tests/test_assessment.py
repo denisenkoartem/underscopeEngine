@@ -96,14 +96,14 @@ def test_stated_facts_reach_the_vehicle():
 
 GOOD = dict(run_status="runs_and_drives", keys=True, engine_condition="ok",
             transmission_condition="ok", catalytic_converter="present", odometer_status="actual",
-            title_in_hand=True, lien="none",
+            title_in_hand=True, lien="none", parts_missing=False,
             flags={"airbags_deployed": False, "frame_suspected": False, "fluid_leak": False,
                    "flood_suspected": False, "fire_damage": False})  # fmt: skip
 BAD = [
     {"run_status": "does_not_start"}, {"run_status": "starts"}, {"keys": False},
     {"engine_condition": "failed"}, {"transmission_condition": "minor"},
     {"catalytic_converter": "missing"}, {"odometer_status": "not_actual"},
-    {"title_in_hand": False}, {"lien": "open"},
+    {"title_in_hand": False}, {"lien": "open"}, {"parts_missing": True},
     {"flags": {**GOOD["flags"], "flood_suspected": True}},
     {"flags": {**GOOD["flags"], "fire_damage": True}},
     {"flags": {**GOOD["flags"], "airbags_deployed": True}},

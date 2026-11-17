@@ -40,6 +40,23 @@
       "title": "Assessment",
       "type": "object"
     },
+    "level": {
+      "anyOf": [
+        {
+          "enum": [
+            "full",
+            "reduced",
+            "low"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Level"
+    },
     "outcome": {
       "$ref": "#/$defs/Outcome"
     },
