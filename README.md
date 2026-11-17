@@ -97,7 +97,7 @@ CI (`.github/workflows/ci.yml`) runs all of these on every pull request.
   model also invents about five times as many values as the rules (0.97 against 0.18 per
   description), so it is not switched on in the page.
 - **Router model:** agrees with the full-information simulation on 94.4% of made-up test cars when
-  the description is complete, 69.2% when a needed fact is missing. See `engine/reports/router.md`.
+  the description is complete, 69.3% when a needed fact is missing. See `engine/reports/router.md`.
 
 ## Known limits
 
