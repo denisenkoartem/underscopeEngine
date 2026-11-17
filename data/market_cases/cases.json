@@ -1,0 +1,437 @@
+{
+ "note": "Made-up seller descriptions (not real vehicles; any dollar figures in them are invented inputs, not market data). `expect` is the marketplace where published descriptions of ACV and Copart say this kind of car sells. It is not a recorded sale and not proof of which marketplace would pay more.",
+ "bases": {
+  "insurer_total_loss": "Insurers supplied 79-81% of Copart's vehicles in fiscal 2024-2026; an economic total loss goes through Copart's insurance auction (Copart 10-K FY2026; Carscoops 2026-09).",
+  "flood": "ACV 'does not sell wrecked or flood-damaged cars' (Yahoo Finance on the Copart-ACV deal, 2026-09).",
+  "wrecked": "ACV 'does not sell wrecked or flood-damaged cars' (Yahoo Finance, 2026-09); Copart's buyers are dismantlers, rebuilders and exporters (Copart 10-K FY2026).",
+  "branded_title": "Project rule: salvage, flood and non-repairable titles go to Copart until ACV confirms its branded-title policy; ~84% of Copart listings are not clear-title (Rebrowser listing counts).",
+  "fire": "Burn damage is a salvage listing category; ACV sells clean-title trade-ins and off-lease cars (Yahoo Finance, 2026-09).",
+  "stripped": "Stripped or vandalised theft recoveries are insurer claims sold as salvage (Copart 10-K FY2026 seller mix).",
+  "dealer_bad_trade": "Dealers send trade-ins too rough to disclose at a dealer auction to Copart (dealer forum account, weak evidence); Copart Dealer Services takes dealer trade-ins (Copart 10-K FY2026).",
+  "clean_trade": "ACV is clean-title trade-ins and off-lease cars; a trade that is not retail-ready 'can move through ACV's wholesale channel' (Yahoo Finance; Carscoops, 2026-09).",
+  "off_lease_fleet": "ACV is clean-title trade-ins and off-lease cars sold dealer to dealer (Yahoo Finance, 2026-09; ACV 10-K FY2025).",
+  "light_mechanical": "A drivable clean-title car with a disclosed defect sells dealer to dealer; ACV inspects and announces defects (ACV 10-K FY2025)."
+ },
+ "cases": [
+  {
+   "id": "cop-01",
+   "expect": "Copart",
+   "basis": "insurer_total_loss",
+   "strength": "clear",
+   "text": "Insurance total loss. Clean TX title. 62,000 miles. Hit hard in the front: front bumper, hood, grille, both headlights and radiator need replacing, both front fenders crushed. Airbags deployed. Frame is bent. Does not start, coolant leaking. Repair estimate $17,800. Clean wholesale value $16,500. Similar damaged ones sold for 3900, 4400, 5100."
+  },
+  {
+   "id": "cop-02",
+   "expect": "Copart",
+   "basis": "insurer_total_loss",
+   "strength": "clear",
+   "text": "Selling for an insurance company, total loss claim. 2017 Nissan Altima, 104k miles, clean OH title. Rear-ended hard: rear bumper, trunk lid and both taillights destroyed, driver quarter panel crushed. Frame damage. Airbags did not deploy. Starts but does not drive. No leaks."
+  },
+  {
+   "id": "cop-03",
+   "expect": "Copart",
+   "basis": "insurer_total_loss",
+   "strength": "clear",
+   "text": "Insurance vehicle, total loss. 88k miles, located in FL. Rollover: roof crushed, windshield shattered, all doors dented. Airbags deployed. Not sure about the frame. Does not start."
+  },
+  {
+   "id": "cop-04",
+   "expect": "Copart",
+   "basis": "insurer_total_loss",
+   "strength": "clear",
+   "text": "Claims adjuster here. 2015 Honda Civic, 131,000 miles, clean PA title. Side impact on the driver side: driver door and driver rear door need replacing, driver quarter panel crushed, side airbags deployed. Frame is bent. Runs and drives. Shop quoted $9,400. Clean wholesale value $7,200. Comps 1500, 1900, 2300."
+  },
+  {
+   "id": "cop-05",
+   "expect": "Copart",
+   "basis": "insurer_total_loss",
+   "strength": "clear",
+   "text": "Insurer is selling. Total loss, hail and then a front hit. 2019 Kia Forte 71k miles. Hood, roof and trunk dented all over from hail, front bumper and grille destroyed, radiator leaking. Airbags deployed. Does not start."
+  },
+  {
+   "id": "cop-06",
+   "expect": "Copart",
+   "basis": "insurer_total_loss",
+   "strength": "clear",
+   "text": "Total loss claim from an insurance company. 140k miles. Front and rear both hit. Front bumper, hood, rear bumper and tailgate need replacing. Airbags deployed, frame bent, leaking fluids. Won't start."
+  },
+  {
+   "id": "cop-07",
+   "expect": "Copart",
+   "basis": "flood",
+   "strength": "clear",
+   "text": "Flood car. Water came up over the seats. Clean LA title for now, 54,000 miles. Interior is soaked and needs replacing. Does not start. No collision damage, body is fine. Airbags did not deploy, frame is fine. Clean wholesale value $21,000. Comps 4200, 5000, 5600."
+  },
+  {
+   "id": "cop-08",
+   "expect": "Copart",
+   "basis": "flood",
+   "strength": "clear",
+   "text": "Dealer trade-in, 2018 Toyota Camry, 77k miles, located in TX. Was in a flood, water line at the dash. Electrical problems, interior stained and smells. Starts but runs rough. No body damage."
+  },
+  {
+   "id": "cop-09",
+   "expect": "Copart",
+   "basis": "flood",
+   "strength": "clear",
+   "text": "Flood title, 96k miles, FL. Runs and drives. Interior is stained. Everything else is fine. Airbags did not deploy, no frame damage, no leaks. Clean wholesale value $14,500. Comps 7600, 8100, 8800."
+  },
+  {
+   "id": "cop-10",
+   "expect": "Copart",
+   "basis": "flood",
+   "strength": "clear",
+   "text": "Insurance company sale after hurricane flooding. 2020 Ford Escape, 38,000 miles. Submerged to the floor, carpet wet, flood damage. Does not start. No other damage."
+  },
+  {
+   "id": "cop-11",
+   "expect": "Copart",
+   "basis": "flood",
+   "strength": "clear",
+   "text": "Fleet vehicle that sat in flood water. 120k miles. Water damage to the interior and engine bay, engine is seized. Won't start. Body is straight, no frame damage."
+  },
+  {
+   "id": "cop-12",
+   "expect": "Copart",
+   "basis": "wrecked",
+   "strength": "clear",
+   "text": "Dealer here. Trade-in that got wrecked on our lot. Clean NY title, 45,000 miles. Front end is destroyed: bumper, hood, grille, radiator, both headlights and both fenders need replacing. Airbags deployed. Frame is bent. Does not start. Leaking coolant and oil. Clean wholesale value $23,000. Similar damaged ones sold for 5200, 6100, 6800."
+  },
+  {
+   "id": "cop-13",
+   "expect": "Copart",
+   "basis": "wrecked",
+   "strength": "clear",
+   "text": "2016 Chevy Malibu, 118k miles, clean MI title, dealer owned. T-boned on the passenger side. Passenger door and passenger rear door crushed, passenger quarter panel crushed, roof is buckled. Airbags deployed. Frame damage. Does not drive."
+  },
+  {
+   "id": "cop-14",
+   "expect": "Copart",
+   "basis": "wrecked",
+   "strength": "clear",
+   "text": "Lender repo that was crashed. 90k miles. Heavy front damage, engine pushed back, front bumper hood and radiator destroyed, windshield shattered. Airbags deployed. Frame bent. Won't start, leaking everything."
+  },
+  {
+   "id": "cop-15",
+   "expect": "Copart",
+   "basis": "wrecked",
+   "strength": "clear",
+   "text": "Fleet truck, rolled over. 156,000 miles, clean GA title. Roof crushed, all glass broken, both doors dented, bed bent. Airbags deployed. Frame is twisted. Does not start."
+  },
+  {
+   "id": "cop-16",
+   "expect": "Copart",
+   "basis": "wrecked",
+   "strength": "clear",
+   "text": "Dealer trade, 2014 Ford Fusion 167k miles. Rear-ended and pushed into another car: rear bumper and trunk destroyed, front bumper, hood and grille need replacing, radiator damaged. Airbags deployed, frame bent. Does not start. Clean wholesale value $4,800. Comps 700, 900, 1100."
+  },
+  {
+   "id": "cop-17",
+   "expect": "Copart",
+   "basis": "branded_title",
+   "strength": "clear",
+   "text": "Salvage title, 112k miles, located in OH. Does not start. Front bumper, hood, grille and windshield need replacing. Airbags deployed. Frame is bent. Clean wholesale value $19,000. Comps: $5,200, $5,900, $6,300."
+  },
+  {
+   "id": "cop-18",
+   "expect": "Copart",
+   "basis": "branded_title",
+   "strength": "clear",
+   "text": "Salvage certificate, dealer owned. 2019 Hyundai Elantra, 60k miles. Front hit, bumper and hood need replacing, runs and drives. Airbags did not deploy. No frame damage."
+  },
+  {
+   "id": "cop-19",
+   "expect": "Copart",
+   "basis": "branded_title",
+   "strength": "clear",
+   "text": "Non-repairable title, 58k miles, NJ. Driver door, driver rear door and driver quarter panel need replacing. Roof is dented. Frame is bent. No leaks."
+  },
+  {
+   "id": "cop-20",
+   "expect": "Copart",
+   "basis": "branded_title",
+   "strength": "clear",
+   "text": "Salvage title in hand. 200k miles. Runs and drives. Hood is dented, rest is fine. No airbags deployed, frame is fine, no leaks."
+  },
+  {
+   "id": "cop-21",
+   "expect": "Copart",
+   "basis": "fire",
+   "strength": "clear",
+   "text": "Engine fire. Clean AZ title, 99,000 miles, dealer trade-in. Engine bay is burned, hood needs replacing, wiring melted. Does not start. Interior smells of smoke. Rest of the body is fine."
+  },
+  {
+   "id": "cop-22",
+   "expect": "Copart",
+   "basis": "fire",
+   "strength": "clear",
+   "text": "Insurance total loss, fire damage. 2013 BMW 328i. Interior burned out, dash melted, windshield cracked from heat. Does not start."
+  },
+  {
+   "id": "cop-23",
+   "expect": "Copart",
+   "basis": "fire",
+   "strength": "clear",
+   "text": "Fleet van caught fire under the hood. 142k miles. Fire damage to the engine bay, front bumper melted, hood replace. Won't start. Frame is fine, airbags did not deploy."
+  },
+  {
+   "id": "cop-24",
+   "expect": "Copart",
+   "basis": "stripped",
+   "strength": "clear",
+   "text": "Theft recovery, insurance claim. 2021 Dodge Charger, 31k miles. They stripped the wheels, seats, radio and the catalytic converter is missing. Steering column broken. Does not start, no keys. Body is fine."
+  },
+  {
+   "id": "cop-25",
+   "expect": "Copart",
+   "basis": "stripped",
+   "strength": "clear",
+   "text": "Recovered stolen vehicle, insurer is selling. Parts missing: engine and transmission are gone, interior stripped. No keys. 80k miles."
+  },
+  {
+   "id": "cop-26",
+   "expect": "Copart",
+   "basis": "stripped",
+   "strength": "clear",
+   "text": "Theft recovery from an insurance company, vandalized. All glass broken, interior torn up, wheels missing, catalytic converter cut off. No keys, does not start. 67,000 miles, clean IL title."
+  },
+  {
+   "id": "cop-27",
+   "expect": "Copart",
+   "basis": "dealer_bad_trade",
+   "strength": "weak",
+   "text": "Dealer trade-in. 2008 Chrysler Sebring, 212,000 miles, clean OH title in hand. Engine is blown, rod knock then seized. Does not start. Transmission was slipping before that. Rust on the underbody, driver fender dented, interior is worn. Airbag light on. Clean wholesale value $2,400. Comps 350, 450, 600."
+  },
+  {
+   "id": "cop-28",
+   "expect": "Copart",
+   "basis": "dealer_bad_trade",
+   "strength": "weak",
+   "text": "Trade-in we do not want to run through the dealer sale. 2010 Dodge Journey 189k miles. Frame is rusted through and bent, prior accident with bad repair. Transmission failed, does not drive. Both rear doors dented, rear bumper cracked."
+  },
+  {
+   "id": "cop-29",
+   "expect": "Copart",
+   "basis": "dealer_bad_trade",
+   "strength": "weak",
+   "text": "Dealer. 2006 Ford Explorer, 240k miles. Does not start, engine failed, no keys. Old accident damage: front bumper missing, hood bent, passenger fender crushed. Frame damage. Leaking oil."
+  },
+  {
+   "id": "cop-30",
+   "expect": "Copart",
+   "basis": "dealer_bad_trade",
+   "strength": "weak",
+   "text": "Dealer owned, 2011 Mini Cooper 151k miles, clean title. Engine seized, transmission failed, won't start. Airbags deployed in an old accident and were never replaced. Structural damage to the front frame rail."
+  },
+  {
+   "id": "acv-31",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade-in. Clean NY title in hand, no lien. 84,000 actual miles. Runs and drives, two keys. Front bumper is scratched and the driver fender has a small dent. Everything else is fine. Airbags did not deploy, no frame damage, no leaks. Clean wholesale value $18,500. Similar damaged ones sold for 9800, 10400, 11200."
+  },
+  {
+   "id": "acv-32",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade, 2019 Honda CR-V EX, 52k miles, clean PA title. Runs and drives great. Rear bumper scuffed, small ding on the passenger rear door. No other damage. No airbags deployed, frame is straight, no leaks. Two keys."
+  },
+  {
+   "id": "acv-33",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Trade-in at our dealership. 2017 Toyota Corolla, 96,000 miles, clean title in hand. Runs and drives. Windshield has a chip, hood has a couple of rock chips. Rest is fine."
+  },
+  {
+   "id": "acv-34",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer. Clean OH title, 71k miles. Runs and drives, keys with it. Driver door has a dent and a scratch. Everything else is fine. Airbags did not deploy, no frame damage, no leaks. Shop quoted $900. Clean wholesale value $15,200. Comps 6500, 7100, 7600."
+  },
+  {
+   "id": "acv-35",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade-in, 2020 Chevrolet Equinox LT, 41,000 miles. Clean title. Runs and drives. Curb rash on the wheels and a scuffed front bumper. No accidents, no frame damage, airbags fine, no leaks."
+  },
+  {
+   "id": "acv-36",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer owned 2016 Ford F-150 XLT, 118k actual miles, clean TX title, no lien. Runs and drives, 4x4 works. Tailgate is dented, rear bumper has a small dent. Interior is clean. No frame damage, no airbags deployed, no leaks."
+  },
+  {
+   "id": "acv-37",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Trade-in. Clean title, 63,000 miles, located in NC. Runs and drives. No damage. Airbags did not deploy, no frame damage, no leaks. Clean wholesale value $22,000. Comps 9000, 9900, 10500."
+  },
+  {
+   "id": "acv-38",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade. 2018 Mazda CX-5, 77k miles, clean title in hand. Runs and drives. Hail: a few small dents on the hood and roof. Everything else is fine. No airbags, no frame damage, no leaks."
+  },
+  {
+   "id": "acv-39",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer, clean FL title. 2021 Hyundai Tucson 29,000 miles. Runs and drives, two keys. Passenger mirror is broken and the passenger door is scratched. Rest is fine. Airbags did not deploy. Frame is fine. No leaks."
+  },
+  {
+   "id": "acv-40",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade-in 2015 Subaru Outback, 134k miles, clean title. Runs and drives. Front bumper cracked, grille broken. No frame damage, airbags did not deploy, no leaks. Everything else is fine. Shop quoted $1,300."
+  },
+  {
+   "id": "acv-41",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Clean title dealer trade, 88k miles. Runs and drives. Normal wear, a few scratches on the rear bumper. Nothing else wrong."
+  },
+  {
+   "id": "acv-42",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade-in. 2019 Jeep Cherokee, 58,000 miles, clean MI title in hand. Runs and drives. Driver taillight is cracked and the driver quarter panel has a scratch. Rest is fine. No frame damage. Airbags did not deploy. No leaks. Clean wholesale value $17,400. Comps 8000, 8600, 9400."
+  },
+  {
+   "id": "acv-43",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Off-lease return from the lender. 2022 Toyota RAV4 LE, 34,000 miles, clean title. Runs and drives, two keys. Light scratches on the rear bumper, everything else is fine. No accidents, frame is straight, airbags fine, no leaks."
+  },
+  {
+   "id": "acv-44",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Fleet vehicle, 2020 Ford Transit Connect, 92k miles, clean title in hand. Runs and drives. Passenger rear door dented, rear bumper scuffed. No frame damage, no airbags deployed, no leaks."
+  },
+  {
+   "id": "acv-45",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Lender repo. 2019 Nissan Rogue, 66,000 miles, clean GA title. Runs and drives, one key. Interior is dirty, front bumper scratched. No other damage. Airbags did not deploy, frame fine, no leaks."
+  },
+  {
+   "id": "acv-46",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Rental fleet unit, 2023 Kia K5, 41k miles. Clean title. Runs and drives. Windshield cracked, a door ding on the driver door. Everything else is fine."
+  },
+  {
+   "id": "acv-47",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Fleet truck, 2018 Chevy Silverado 1500, 149,000 miles, clean title. Runs and drives. Bed is scratched, rear bumper dented, driver fender dented. Frame is straight, airbags did not deploy, no leaks. Clean wholesale value $16,000. Comps 7800, 8300, 9100."
+  },
+  {
+   "id": "acv-48",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Off lease, bank is selling. 2021 Honda Accord Sport 38k miles, clean title. Runs and drives. No damage, normal wear only. Two keys."
+  },
+  {
+   "id": "acv-49",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Company car coming off fleet. 2019 Ford Escape, 101k miles, clean OH title in hand. Runs and drives. Scratches on both rear doors, hood has rock chips. No frame damage, airbags not deployed, no leaks."
+  },
+  {
+   "id": "acv-50",
+   "expect": "ACV",
+   "basis": "off_lease_fleet",
+   "strength": "clear",
+   "text": "Lender sale, 2020 Volkswagen Jetta, 55,000 miles, clean title. Runs and drives. Front bumper cracked, passenger headlight broken. Rest is fine. Airbags did not deploy. No frame damage. No leaks."
+  },
+  {
+   "id": "acv-51",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Dealer trade-in. 2016 Honda Accord, 108k miles, clean title in hand. Runs and drives. Check engine light is on, code P0420. No body damage. No frame damage, airbags fine, no leaks."
+  },
+  {
+   "id": "acv-52",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Dealer trade, clean NY title, 92,000 miles. Runs and drives. AC does not blow cold and the ABS light is on. Rear bumper scuffed. Everything else is fine. Airbags did not deploy, no frame damage, no leaks."
+  },
+  {
+   "id": "acv-53",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Dealer. 2017 Chevy Cruze 86k miles, clean title. Runs and drives, slight oil leak from the valve cover. Body is clean, no damage. No frame damage, no airbags deployed."
+  },
+  {
+   "id": "acv-54",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Trade-in at the dealership, 2018 Ford Focus, 74k miles, clean title. Runs and drives but the transmission shudders a little on takeoff. No body damage. Frame fine, airbags fine, no leaks."
+  },
+  {
+   "id": "acv-55",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Dealer trade-in 2015 Toyota Sienna, 142k miles, clean title in hand. Runs and drives. Needs brakes and tires. Driver sliding door has a dent. No frame damage, airbags did not deploy, no leaks."
+  },
+  {
+   "id": "acv-56",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Fleet unit, 2019 Ram ProMaster, 120k miles, clean title. Runs and drives. Check engine light on, runs fine. Rear doors scratched. No frame damage, no airbags deployed, no leaks."
+  },
+  {
+   "id": "acv-57",
+   "expect": "ACV",
+   "basis": "light_mechanical",
+   "strength": "clear",
+   "text": "Dealer owned, clean title, 67k miles. Runs and drives. Battery light comes on sometimes. Passenger fender has a small dent. Everything else is fine. Airbags did not deploy, no frame damage, no leaks. Clean wholesale value $13,900. Comps 6000, 6600, 7200."
+  },
+  {
+   "id": "acv-58",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade-in, 2022 Subaru Crosstrek, 27,000 miles, clean title in hand, no lien. Runs and drives. Rear-ended lightly: rear bumper needs replacing, tailgate has a small dent. No frame damage, airbags did not deploy, no leaks. Everything else is fine. Shop quoted $2,100. Clean wholesale value $23,500. Comps 12500, 13400, 14200."
+  },
+  {
+   "id": "acv-59",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer. 2020 Toyota Tacoma, 60k miles, clean title. Runs and drives. Front hit, low speed: front bumper and grille need replacing, driver headlight broken. Airbags did not deploy. No frame damage. No leaks. Everything else is fine."
+  },
+  {
+   "id": "acv-60",
+   "expect": "ACV",
+   "basis": "clean_trade",
+   "strength": "clear",
+   "text": "Dealer trade, 2018 Honda Civic, 81,000 miles, clean title. Runs and drives. Keyed down the driver side: driver door, driver rear door and driver quarter panel scratched. Everything else is fine. No frame damage, airbags fine, no leaks."
+  }
+ ]
+}
