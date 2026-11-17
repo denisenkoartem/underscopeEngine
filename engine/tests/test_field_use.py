@@ -15,7 +15,8 @@ from underscope.intake import FIELD_USE, to_engine
 CONTRACT = FsPath(__file__).resolve().parents[2] / "reader" / "src" / "contract.ts"
 NO_CLEAN = {"clean_wholesale": None, "salvage_comps": [2625, 4875, 5325, 7725]}
 UNGRADED = [{"part": g["part"], "grade": "unknown"} for g in body()["grades"]]
-FLOOD = {**GOOD["flags"], "flood_suspected": True}
+# Flood not stated: it is then assumed in a share of outcomes (stated flood signs exclude ACV).
+FLOOD = {**GOOD["flags"], "flood_suspected": "unknown"}
 
 # key -> (base body, the same body with only that key changed)
 CASES = {

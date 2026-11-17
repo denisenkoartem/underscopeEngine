@@ -73,6 +73,30 @@ def test_4_a_private_seller_cannot_use_acv():
     assert out["decided_by"] == "title_rule"
 
 
+def test_4b_stated_flood_signs_exclude_acv():
+    flood = {**GOOD["flags"], "flood_suspected": True}
+    unsaid = {**GOOD["flags"], "flood_suspected": "unknown"}
+    for stated in ({"flags": flood}, {"flags": unsaid, "primary_damage": "water"},
+                   {"flags": unsaid, "secondary_damage": "water"}):
+        out = route(body(**{**GOOD, **stated}))
+        assert out["destination"] == "Copart" and out["decided_by"] == "condition_rule", stated
+        assert out["confidence"] == "clear" and "Flood signs stated" in out["answer"]
+        assert {e["path"] for e in out["excluded"]} >= {"acv_as_is", "repair_then_acv"}
+    # Water damage with "no flood signs" stated: the statement is kept, no rule.
+    assert route(body(**GOOD, primary_damage="water"))["decided_by"] == "simulation"
+    # Not stated, or stated as absent: no rule.
+    for flag in (False, "unknown"):
+        out = route(body(**{**GOOD, "flags": {**GOOD["flags"], "flood_suspected": flag}}))
+        assert out["decided_by"] == "simulation", flag
+    # The title rule comes first; a seller's ACV-only limit that cannot be met is said.
+    assert route(body(**{**GOOD, "flags": flood}, title_status="salvage"))["decided_by"] == (
+        "title_rule")
+    out = route(body(**{**GOOD, "flags": flood}, lanes_allowed=["acv"]))
+    assert out["review_reasons"][0].startswith(
+        "The seller allows only ACV, but a vehicle with stated flood signs cannot be listed")
+    assert out["needs_human_review"]
+
+
 def test_5_repair_cost_priority_and_already_repaired():
     quote = {**body()["values"], "repair_estimate": 4000}
     v, _, notes = to_engine(body(values=quote))
@@ -206,6 +230,7 @@ def test_a_rule_decides_clearly_even_with_nothing_else_given():
     for only, rule in (({"seller_type": "individual"}, "seller_rule"),
                        ({"sell_by_days": 5}, "seller_limit"),
                        ({"lanes_allowed": ["copart"]}, "seller_limit"),
+                       ({"flags": {"flood_suspected": True}}, "condition_rule"),
                        ({"title_status": "flood"}, "title_rule")):  # fmt: skip
         out = route(only)
         assert (out["decided_by"], out["confidence"]) == (rule, "clear"), only

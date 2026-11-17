@@ -35,7 +35,8 @@ def test_every_row_routes_without_a_vin(rows, routed):
     assert sum(not r["a"].get("vin") for r in rows) > 50  # the file does cover missing VINs
     for r, out in routed:
         assert out["destination"] in ("ACV", "Copart"), r["id"]
-        assert out["decided_by"] in ("title_rule", "seller_rule", "seller_limit", "model",
+        assert out["decided_by"] in ("title_rule", "condition_rule", "seller_rule", "seller_limit",
+                                     "model",
                                      "simulation"), r["id"]  # fmt: skip
         assert out["winner"] in {o["path"] for o in out["options"]}, r["id"]
         assert out["reader_missing"] == r["a"]["missing"], r["id"]
@@ -61,8 +62,10 @@ def test_the_sellers_lane_limit_is_respected(routed):
         # prefers).
         assert out["destination"] == "Copart", r["id"]
         barred_seller = a["seller_type"] in ("individual", "insurer")
-        assert a["title_status"] in BRANDED or barred_seller, r["id"]
-        assert out["decided_by"] in ("title_rule", "seller_rule"), r["id"]
+        flood = a["flags"].get("flood_suspected") is True or "water" in (
+            a["primary_damage"], a["secondary_damage"])
+        assert a["title_status"] in BRANDED or barred_seller or flood, r["id"]
+        assert out["decided_by"] in ("title_rule", "condition_rule", "seller_rule"), r["id"]
         # ...and it is never silent about it.
         assert out["review_reasons"][0].startswith("The seller allows only"), r["id"]
         assert out["answer"].startswith("The seller allows only"), r["id"]
@@ -108,7 +111,7 @@ def test_every_row_gets_an_answer_with_its_precision(rows, monkeypatch):
     monkeypatch.delenv(router.ENV)
     if router.load_model() is None:
         pytest.skip("no engine/models/router.joblib: run `underscope train-router`")
-    rules = ("title_rule", "seller_rule", "seller_limit")
+    rules = ("title_rule", "condition_rule", "seller_rule", "seller_limit")
     answered = 0
     for r in rows:
         out, s = route(r["a"]), Assessment.model_validate(r["a"])

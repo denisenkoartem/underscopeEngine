@@ -407,6 +407,13 @@ lanes:
   # Part-out is a dismantler's own exit (teardown, months of parts sales). Most sellers don't
   # dismantle, and dismantlers already bid on Copart, so their demand is in Copart's price.
   seller_can_part_out: false
+  # Exits a stated fact rules out. Flood signs stated by the seller (or water named as the
+  # damage) exclude ACV: flood history is a mandatory announcement at dealer auctions and such
+  # vehicles are sold at salvage auction. Added 2026-11-17. UNCONFIRMED policy.
+  fact_excludes:
+    flood_suspected: [repair_then_acv, acv_as_is]
+  why_fact_excluded:
+    flood_suspected: "Flood signs stated: ACV is excluded, flood vehicles sell at salvage auction (policy not confirmed with ACV)."
   # Exits a kind of seller cannot use. ACV is a dealer-to-dealer marketplace, so a private
   # owner cannot list there, and neither can an insurer: insurers sell their claim vehicles at
   # salvage auction (about 80% of Copart's vehicles in fiscal 2024-2026 came from insurers,

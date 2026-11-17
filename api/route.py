@@ -4,7 +4,7 @@ Body: the reader's Assessment (reader/src/contract.ts; schema in
 engine/contracts/assessment.schema.json) plus the decoded `vehicle` and the page's `repair`
 estimate from /api/repair-estimate. Every key is optional and unknown keys are ignored.
 Returns the marketplace (ACV or Copart), p_acv (chance ACV's best exit nets more than Copart),
-decided_by (title_rule | seller_limit | model | simulation), confidence (clear | close_call |
+decided_by (title_rule | condition_rule | seller_rule | seller_limit | model | simulation), confidence (clear | close_call |
 insufficient), verify_first, the allowed exits ranked with P10/P50/P90 net proceeds, the excluded
 exits with reasons, and title_branches when the title is unknown.
 The model is a small classifier trained on SIMULATED outcomes (engine/reports/router.md), not on
@@ -29,7 +29,7 @@ USAGE = {
     "endpoint": "POST /api/route",
     "body": "the reader's Assessment (engine/contracts/assessment.schema.json) + vehicle + repair?",
     "returns": "destination (ACV | Copart), p_acv, p_acv_simulation, decided_by (title_rule | "
-               "seller_limit | model | simulation), model, confidence (clear | close_call | "
+               "condition_rule | seller_rule | seller_limit | model | simulation), model, confidence (clear | close_call | "
                "insufficient), verify_first, missing, options (allowed exits), excluded, "
                "input_checks, title_branches (unknown title), explanation, notes",
 }

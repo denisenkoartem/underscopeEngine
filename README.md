@@ -31,7 +31,7 @@ VIN + the seller's description
         │              flags, run status, ...), each with the words it was read from.
         │              Keyword rules always; a fine-tuned small model as well when it is switched on.
         ├─ repair      part × grade lookup → repair cost range, with allowances for what is unchecked
-        └─ engine      title and seller rules → allowed exits
+        └─ engine      title, flood and seller rules → allowed exits
                        1,000 simulated outcomes per exit → net-proceeds ranges
                        router model → chance ACV nets more than Copart
                        → ACV or Copart, clear / close call / not enough to go on

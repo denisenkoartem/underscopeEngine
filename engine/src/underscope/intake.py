@@ -43,7 +43,8 @@ FIELD_USE: dict[str, tuple[str, str]] = {
                                  "and frame flags it leaves unknown"),
     "secondary_damage": ("dollar", "same as primary, one grade milder"),
     "grades": ("dollar", "damage findings and the engine's repair estimate"),
-    "flags": ("dollar", "frame finding, airbags, leak, flood and fire effects"),
+    "flags": ("dollar", "frame finding, airbags, leak, flood and fire effects; stated "
+              "flood signs exclude ACV"),
     "catalytic_converter": ("dollar", "replacement cost"),
     "parts_missing": ("dollar", "lower as-is and Copart price"),
     "already_repaired": ("dollar", "yes: no repair cost or days; partly: review reason"),

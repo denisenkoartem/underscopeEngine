@@ -58,18 +58,22 @@ DESTINATION = {
 
 
 def eligible_paths(title_in: str, a: Assumptions, lanes_allowed: list[str] | None = None,
-                   seller_type: str | None = None,
+                   seller_type: str | None = None, facts: tuple[str, ...] = (),
                    ) -> tuple[tuple[Path, ...], list[dict]]:  # fmt: skip
-    """Exits the title allows (config `lanes.by_title`), minus those this kind of seller
-    cannot use (`lanes.seller_excludes`), within the marketplaces the seller allows
-    (`lanes_allowed`, RULES.md S01). Also why each other exit is out."""
+    """Exits the title allows (config `lanes.by_title`), minus those a stated fact rules out
+    (`lanes.fact_excludes`, e.g. flood signs), minus those this kind of seller cannot use
+    (`lanes.seller_excludes`), within the marketplaces the seller allows (`lanes_allowed`,
+    RULES.md S01). Also why each other exit is out."""
     lanes = a["lanes"]
     by_title = {Path(p) for p in lanes["by_title"].get(title_in, lanes["by_title"]["clean"])}
     if lanes.get("seller_can_part_out"):
         by_title.add(Path.PART_OUT)
-    barred = {Path(p) for p in lanes.get("seller_excludes", {}).get(seller_type or "", [])}
+    fact_cfg = lanes.get("fact_excludes", {})
+    hit = [f for f in facts if f in fact_cfg]
     # A rule that leaves no exit cannot be met; the earlier rule wins.
-    by_seller = (by_title - barred) or by_title
+    by_fact = (by_title - {Path(p) for f in hit for p in fact_cfg[f]}) or by_title
+    barred = {Path(p) for p in lanes.get("seller_excludes", {}).get(seller_type or "", [])}
+    by_seller = (by_fact - barred) or by_fact
     wanted = {x.lower() for x in lanes_allowed or []}
     allowed = {p for p in by_seller if not wanted or DESTINATION[p].lower() in wanted}
     allowed = allowed or by_seller
@@ -78,6 +82,8 @@ def eligible_paths(title_in: str, a: Assumptions, lanes_allowed: list[str] | Non
         f"{name} title: exit not allowed (config lanes.by_title).")
     why_seller = lanes.get("why_seller_excluded", {}).get(seller_type or "") or (
         f"A {seller_type} seller cannot use this exit (config lanes.seller_excludes).")
+    why_fact = " ".join(lanes.get("why_fact_excluded", {}).get(f)
+                        or f"{f}: exit not allowed (config lanes.fact_excludes)." for f in hit)
 
     def reason(p: Path) -> str:
         if p == Path.PART_OUT:
@@ -85,11 +91,22 @@ def eligible_paths(title_in: str, a: Assumptions, lanes_allowed: list[str] | Non
                     "their demand is in Copart's price.")
         if p not in by_title:
             return why_title
+        if p not in by_fact:
+            return why_fact
         return why_seller if p not in by_seller else f"The seller does not allow {DESTINATION[p]}."
 
     excluded = [{"path": p.value, "label": LABEL[p], "destination": DESTINATION[p],
                  "reason": reason(p)} for p in PATHS if p not in allowed]  # fmt: skip
     return tuple(p for p in PATHS if p in allowed), excluded
+
+
+def stated_facts(s: Assessment, a: Assumptions) -> tuple[str, ...]:
+    """The flags the description states as true, directly or through a named damage area
+    (config `damage_areas.flags`: water damage is a flood sign)."""
+    by_area = a["damage_areas"].get("flags", {})
+    named = {f for area in (s.primary_damage, s.secondary_damage) for f in by_area.get(area, [])
+             if not isinstance(s.flags.get(f), bool)}  # a stated "no flood" is kept
+    return tuple(sorted({f for f, v in s.flags.items() if v is True} | named))
 
 
 def _one_marketplace(paths: tuple[Path, ...]) -> bool:
@@ -109,12 +126,15 @@ def exits(s: Assessment, title_in: str, vehicle: VehicleRecord, val: Any, a: Ass
           ) -> tuple[tuple[Path, ...], list[dict], str | None, list[str]]:  # fmt: skip
     """The exits left after every rule, the excluded ones with reasons, which rule left a single
     marketplace (None when two remain), and review reasons the rules raise.
-    Order: title, kind of seller, the seller's lane limit, the seller's deadline."""
+    Order: title, stated facts (flood signs), kind of seller, the seller's lane limit, the
+    seller's deadline."""
     seller = None if s.seller_type == "unknown" else s.seller_type
-    paths, excluded = eligible_paths(title_in, a, s.lanes_allowed, seller)
+    facts = stated_facts(s, a)
+    paths, excluded = eligible_paths(title_in, a, s.lanes_allowed, seller, facts)
     rule = None
     for name, stage in (("title_rule", eligible_paths(title_in, a)[0]),
-                        ("seller_rule", eligible_paths(title_in, a, None, seller)[0]),
+                        ("condition_rule", eligible_paths(title_in, a, None, None, facts)[0]),
+                        ("seller_rule", eligible_paths(title_in, a, None, seller, facts)[0]),
                         ("seller_limit", paths)):  # fmt: skip
         if rule is None and _one_marketplace(stage):
             rule = name
@@ -145,14 +165,18 @@ def _unmet_limit(s: Assessment, title_in: str, a: Assumptions) -> str | None:
     if not wanted:
         return None
     seller = None if s.seller_type == "unknown" else s.seller_type
+    facts = stated_facts(s, a)
     by_title = eligible_paths(title_in, a)[0]
-    left = eligible_paths(title_in, a, None, seller)[0]
+    by_fact = eligible_paths(title_in, a, None, None, facts)[0]
+    left = eligible_paths(title_in, a, None, seller, facts)[0]
     if any(DESTINATION[p].lower() in wanted for p in left):
         return None
     names = {"acv": "ACV", "copart": "Copart"}
     only = " and ".join(names.get(x, x) for x in wanted)
     if not any(DESTINATION[p].lower() in wanted for p in by_title):
         why = f"a {title_in.replace('_', '-')} title cannot be listed there"
+    elif not any(DESTINATION[p].lower() in wanted for p in by_fact):
+        why = "a vehicle with stated flood signs cannot be listed there (policy not confirmed)"
     else:
         sellers = {"individual": "a private seller", "insurer": "an insurer"}
         who = sellers.get(seller or "", "this seller")
@@ -385,7 +409,7 @@ def _reader_meta(out: dict[str, Any], payload: dict[str, Any],
     }  # fmt: skip
     # A needed fact is missing: the marketplace can still be named, never as a clear call.
     # (A rule's answer does not depend on the missing facts, so it keeps its confidence.)
-    by_rule = out["decided_by"] in ("title_rule", "seller_rule", "seller_limit")
+    by_rule = out["decided_by"] in ("title_rule", "condition_rule", "seller_rule", "seller_limit")
     if level == "low" and out["confidence"] == "clear" and not by_rule:
         out["confidence"] = "close_call"
         out["review_reasons"] = out["review_reasons"] + [
