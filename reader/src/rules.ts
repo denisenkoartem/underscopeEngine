@@ -27,6 +27,9 @@ const NEG_BEFORE = /\b(?:no|not|never|nothing|without|none|zero|isn'?t|wasn'?t|a
 const UNSURE = /\b(?:not sure|unsure|don'?t know|do not know|unknown|can'?t tell|cannot tell|maybe|possibl[ey]|might|not checked|haven'?t checked)\b|\?/;
 const NEG_AFTER = /^[^,;.]{0,28}\b(?:not|never|none|didn'?t|did not|intact|ok|okay|fine|good|straight)\b/;
 
+// A form-style answer right after the keyword: "Airbags deployed: no", "Frame damage - none".
+const ANSWER_NO = /^[^,;.:]{0,20}[:=–]\s*(?:no|nope|none|negative|n)\b/;
+
 const SIDE = '(?:(left|driver(?:\'?s)?(?:[- ]side)?|lh|right|passenger(?:\'?s)?(?:[- ]side)?|rh|both)\\s+)?';
 // noun pattern -> part, or for sided parts the name after left_/right_. Checked in order; longer names first.
 const SIDED: [RegExp, string][] = [
@@ -55,8 +58,8 @@ const STATE_CODES = new Set(Object.values(STATES));
 // ---- Vocabulary for the 2026-11-16 criteria. Checked in order; the first match in the first sentence wins. ----
 type Table<T extends string> = [RegExp, T][];
 const TITLE_IN_HAND: Table<'yes' | 'no'> = [
-  [/\bno title\b|\btitle (?:is |was )?(?:absent|missing|lost|pending|delayed|not (?:in hand|here|available|present|ready))|\bwaiting (?:on|for) (?:the |a )?title|\blost (?:the )?title|\btitle (?:is )?(?:at|with) the (?:bank|lender|lienholder|dmv)|\btitle (?:is )?in the mail|\b(?:don'?t|do not) have (?:the |a )?title/, 'no'],
-  [/\btitle (?:is |are )?(?:in|on) hand\b|\b(?:have|has|got|with) (?:the |a )?(?:clean |clear |salvage |rebuilt )?title\b|\btitle (?:is )?(?:here|present|ready|available|attached)\b/, 'yes'],
+  [/\btitle\b[^.;]{0,40}\bnot (?:in|on) hand\b|\bno title\b|\btitle (?:is |was )?(?:absent|missing|lost|pending|delayed|not (?:in hand|here|available|present|ready))|\bwaiting (?:on|for) (?:the |a )?title|\blost (?:the )?title|\btitle (?:is )?(?:at|with) the (?:bank|lender|lienholder|dmv)|\btitle (?:is )?in the mail|\b(?:don'?t|do not) have (?:the |a )?title/, 'no'],
+  [/\btitle (?:is |are )?(?:in|on) hand\b|\btitle\b[^.;]{0,40}\b(?:in|on) hand\b|\b(?:have|has|got|with) (?:the |a )?(?:clean |clear |salvage |rebuilt )?title\b|\btitle (?:is )?(?:here|present|ready|available|attached)\b/, 'yes'],
 ];
 const LIEN: Table<'none' | 'open'> = [
   [/\bnot paid off\b|\bstill owes?\b/, 'open'],
@@ -66,7 +69,7 @@ const LIEN: Table<'none' | 'open'> = [
 const ODOMETER_STATUS: Table<'actual' | 'not_actual' | 'exempt'> = [
   [/\bnot actual\b|\btmu\b|\btrue (?:miles?|mileage) unknown\b|\bodometer (?:was |is |has been )?(?:rolled back|broken|replaced|not working|inaccurate)|\bodometer (?:rollback|discrepancy)|\bcluster (?:was |has been )?(?:swapped|replaced)|\bmileage (?:is )?(?:unknown|not verified)/, 'not_actual'],
   [/\bexempt\b/, 'exempt'],
-  [/\bactual (?:miles?|mileage)\b|\b(?:miles?|mileage) (?:is |are )?actual\b/, 'actual'],
+  [/\bactual (?:miles?|mileage)\b|\b(?:miles?|mileage|mi),? (?:is |are )?actual\b/, 'actual'],
 ];
 const SELLER_TYPE: Table<'dealer' | 'insurer' | 'fleet' | 'lender' | 'individual'> = [
   [/\binsurance (?:company |carrier )?(?:sale|vehicle|total loss)\b|\bselling (?:it )?for (?:an? |the )?insur\w+|\binsurer is selling\b|\btotal loss claim\b|\bclaims? adjuster\b/, 'insurer'],
@@ -172,7 +175,7 @@ function flag(sentences: string[], keyword: RegExp, positive: RegExp | null, ev:
     if (!m) continue;
     const before = s.slice(0, m.index), after = s.slice(m.index + m[0].length);
     if (UNSURE.test(s)) { ev[key] = s.trim(); return 'unknown'; }
-    if (NEG_BEFORE.test(before) || NEG_AFTER.test(after)) { ev[key] = s.trim(); return false; }
+    if (NEG_BEFORE.test(before) || NEG_AFTER.test(after) || ANSWER_NO.test(after)) { ev[key] = s.trim(); return false; }
     if (!positive || positive.test(s)) { ev[key] = s.trim(); return true; }
   }
   return 'unknown';

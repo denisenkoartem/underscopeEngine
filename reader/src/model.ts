@@ -17,7 +17,7 @@ import {
   emptyAssessment, listMissing,
   type Assessment, type CodeStatus, type EnumField, type FlagName, type GradeName, type Lane, type Part, type SymptomSystem, type WarningLight,
 } from "./contract.js";
-import { ParserApiError, callOpenAI, parserTimeoutMs, refusalText, responseText, statusText, type CallContext, type ParserClient, type ParserUsage } from "./openaiParse.js";
+import { ParserApiError, callModel, parserTimeoutMs, refusalText, responseText, statusText, type CallContext, type ParserClient, type ParserUsage } from "./modelClient.js";
 
 export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const PROMPT_PATH = join(PACKAGE_ROOT, "prompts", "read.md");
@@ -205,22 +205,62 @@ export function buildRequest(model: string, text: string, opts: { sparse?: boole
 
 const stripFence = (s: string): string => /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(s.trim())?.[1] ?? s;
 
-/** The answer in a reply, or why there is none (refused, cut off, empty, not JSON, wrong shape). */
-export function readReply(res: Response): { answer: Answer; problem?: undefined } | { answer?: undefined; problem: string } {
+const MEMBER_RE = new RegExp(`"(${ANSWER_KEYS.join("|")})"\\s*:`, "g");
+
+/**
+ * The members of a reply that is not valid JSON as a whole, each parsed on its own. A small model
+ * sometimes writes one member in a broken shape (`"primary_damage":{"rear","side"}`, a list left
+ * open); the others are still good. Returns what parsed and the keys that did not.
+ */
+export function salvageMembers(text: string): { json: Record<string, unknown>; dropped: string[] } {
+  const json: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  const marks = [...text.matchAll(MEMBER_RE)];
+  marks.forEach((m, i) => {
+    const key = m[1]!;
+    const seg = text.slice(m.index! + m[0].length, marks[i + 1]?.index ?? text.length).trim().replace(/,+$/, "").trim();
+    if (key in json) return; // the first good one wins
+    for (const candidate of [seg, seg.replace(/\}$/, "").replace(/,+\s*$/, ""), `${seg}]`, `${seg}}`]) {
+      try {
+        json[key] = JSON.parse(candidate);
+        return;
+      } catch { /* try the next form */ }
+    }
+    if (!dropped.includes(key)) dropped.push(key);
+  });
+  return { json, dropped: dropped.filter((k) => !(k in json)) };
+}
+
+/**
+ * The answer in a reply, or why there is none (refused, cut off, empty, nothing usable). A member
+ * that is broken or has the wrong shape is left out and named in `dropped`; the rest is kept.
+ */
+export function readReply(res: Response): { answer: Answer; dropped: string[]; problem?: undefined } | { answer?: undefined; dropped?: undefined; problem: string } {
   const refusal = refusalText(res);
   if (refusal !== undefined) return { problem: `model refused (${refusal.replace(/\s+/g, " ").trim().slice(0, 200)})` };
   if (res.status !== undefined && res.status !== "completed") return { problem: `response ${statusText(res)}` };
   const text = responseText(res).trim();
   if (text === "") return { problem: "empty reply" };
   let json: unknown;
+  let dropped: string[] = [];
   try {
     json = JSON.parse(stripFence(text));
   } catch {
-    return { problem: "reply is not valid JSON" };
+    ({ json, dropped } = salvageMembers(stripFence(text)));
+    if (Object.keys(json as object).length === 0) return { problem: "reply is not valid JSON" };
   }
   const parsed = AnswerSchema.safeParse(json);
-  if (parsed.success) return { answer: parsed.data as Answer };
-  return { problem: `reply is not an answer: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}` };
+  if (parsed.success) return { answer: parsed.data as Answer, dropped };
+  if (typeof json !== "object" || json === null || Array.isArray(json)) return { problem: "reply is not an answer: not an object" };
+  // Wrong shape somewhere: keep the members that fit, one by one.
+  const kept: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(json)) {
+    if (AnswerSchema.safeParse({ [k]: v }).success) kept[k] = v;
+    else dropped.push(k);
+  }
+  const again = AnswerSchema.safeParse(kept);
+  if (!again.success || Object.keys(kept).length === 0) return { problem: `reply is not an answer: ${parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}` };
+  return { answer: again.data as Answer, dropped };
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +357,7 @@ function statusAfterCode(code: string, text: string): "pending" | "history" | un
  * - missed: a code in the notes that the answer left out
  * The first three are unsupported answers: the invented-value rate counts them.
  */
-export type IssueKind = "quote_not_in_text" | "value_not_shown" | "invented_dropped" | "downgraded" | "missed";
+export type IssueKind = "quote_not_in_text" | "value_not_shown" | "invented_dropped" | "downgraded" | "missed" | "malformed_dropped";
 export const UNSUPPORTED_KINDS: readonly IssueKind[] = ["quote_not_in_text", "value_not_shown", "invented_dropped"];
 export interface Issue {
   path: string;
@@ -597,7 +637,7 @@ export async function readModel(text: string, opts: ReadOptions = {}): Promise<M
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let res: Response;
     try {
-      res = await callOpenAI(ctx, attempt === 1 ? "read" : "read retry", body);
+      res = await callModel(ctx, attempt === 1 ? "read" : "read retry", body);
     } catch (e) {
       if (e instanceof ParserApiError) throw new ReadError(e.message);
       throw e;
@@ -605,6 +645,7 @@ export async function readModel(text: string, opts: ReadOptions = {}): Promise<M
     const reply = readReply(res);
     if (reply.answer) {
       const v = verifyAnswer(reply.answer, notes, removed);
+      for (const k of reply.dropped) v.issues.push({ path: k, kind: "malformed_dropped", detail: "the model wrote this member in a broken shape; it was left out" });
       for (const i of v.issues) log(`read: ${i.path}: ${i.kind} (${i.detail})`);
       return { ...v, model, usage };
     }

@@ -7,7 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PACKAGE_ROOT, ReadError } from "./model.js";
-import type { ParserClient } from "./openaiParse.js";
+import type { ParserClient } from "./modelClient.js";
 import { read } from "./read.js";
 
 const REPO_ROOT = resolve(PACKAGE_ROOT, "..");

@@ -3,7 +3,7 @@ import type { ChatCompletion } from "openai/resources/chat/completions";
 import { describe, expect, it } from "vitest";
 import { chatParserClient, fromChatCompletion, toChatRequest, type ChatClient } from "../src/chatAdapter.js";
 import { ANSWER_KEYS, ReadError, answerFromAssessment, answerJsonSchema, buildRequest, fullAnswer, loadPrompt, readModel, readReply, sparseAnswer, stripRoleLines, verifyAnswer, type Answer } from "../src/model.js";
-import { responseText } from "../src/openaiParse.js";
+import { responseText } from "../src/modelClient.js";
 
 const NOTES = "2016 Honda Accord EX, 128k miles. Clean NY title in hand, no keys. Rear-ended: trunk lid smashed, rear bumper cracked, everything else is fine. Still drives fine. Airbags did not deploy. P0420 pending. Shop quoted $3,200.";
 const GOOD: Answer = {
@@ -121,6 +121,19 @@ describe("readReply", () => {
     expect(readReply(fromChatCompletion(completion("```json\n{}\n```"))).answer).toEqual({});
     expect(readReply(fromChatCompletion(completion("not json"))).problem).toMatch(/not valid JSON/);
     expect(readReply(fromChatCompletion(completion(""))).problem).toMatch(/empty/);
+  });
+  it("keeps the well-formed members of a partly broken reply and names the rest", () => {
+    const r = readReply(fromChatCompletion(completion('{"primary_damage":{"rear","side"},"grades":[{"part":"rear_bumper","grade":"replace","evidence":"rear bumper destroyed"}],"run_status":{"value":"runs_and_drives","evidence":"Runs and drives"}}')));
+    expect(r.answer).toEqual({ grades: [{ part: "rear_bumper", grade: "replace", evidence: "rear bumper destroyed" }], run_status: { value: "runs_and_drives", evidence: "Runs and drives" } });
+    expect(r.dropped).toEqual(["primary_damage"]);
+    // a list left open, then more members
+    const open = readReply(fromChatCompletion(completion('{"grades":[{"part":"hood","grade":"replace","evidence":"hood"},"keys":{"value":"yes","evidence":"two keys"}}')));
+    expect(open.answer).toMatchObject({ grades: [{ part: "hood" }], keys: { value: "yes" } });
+    // valid JSON, one member of the wrong type
+    const typed = readReply(fromChatCompletion(completion('{"zip":{"value":30303,"evidence":"30303"},"keys":{"value":"yes","evidence":"two keys"}}')));
+    expect(typed.answer).toEqual({ keys: { value: "yes", evidence: "two keys" } });
+    expect(typed.dropped).toEqual(["zip"]);
+    expect(readReply(fromChatCompletion(completion('{"primary_damage":{"mechanical"}}'))).problem).toMatch(/not valid JSON/);
   });
 });
 

@@ -11,7 +11,8 @@
     "reader:upgrade": "tsx scripts/reader/upgrade.ts",
     "reader:export": "tsx scripts/reader/export.ts",
     "reader:eval": "tsx scripts/reader/eval.ts",
-    "reader:gold": "tsx scripts/reader/gold.ts"
+    "reader:gold": "tsx scripts/reader/gold.ts",
+    "reader:assessments": "tsx scripts/reader/assessments.ts"
   },
   "dependencies": {
     "openai": "^7.53.0",

@@ -1,8 +1,12 @@
 # Underscope reader
 
 `reader/` does one job: a seller's free-text description of a damaged vehicle goes in, one JSON of
-assessment parameters comes out. The engine (`engine/`, `/api/route`, `/api/decide`) analyzes that JSON
+assessment parameters comes out. The engine (`engine/`, `/api/route`) analyzes that JSON
 later. The reader itself decides nothing about where to sell or whether to repair.
+
+## The page's form
+
+The page asks for the needed facts in separate boxes (title, mileage, clean, comps, damage, airbags, frame, leaks) and has one general box. `src/form.ts` `compose(fields, notes)` writes them into the one text the reader takes: each answer behind its lead ("Mileage: 84k."), the damage box and the general box as typed. A yes/no box has a neutral lead ("Frame: ..."), so an answer the reader cannot read stays unknown; only a plain "yes" gets the lead that states the fact. `/api/parse-notes` and `/api/engine` take `{ fields, text }`.
 
 ## Input
 
@@ -27,11 +31,12 @@ The text of the page's description box (up to 20,000 characters), as the seller 
 | Damage | `primary_damage`, `secondary_damage`, `grades` (25 parts), `flags.{airbags_deployed, frame_suspected, fluid_leak, flood_suspected, fire_damage}`, `catalytic_converter`, `parts_missing`, `already_repaired` |
 | Complaints | `warning_lights`, `codes`, `symptoms` |
 | Money and timing | `values.{clean_wholesale, salvage_comps, purchase_price, repair_estimate, reserve_price}`, `storage_cost_per_day`, `sell_by_days` |
-| About the reading | `reader`, `evidence`, `missing`, `could_add`, `questions`, `additional`, `conflicts` |
+| About the reading | `reader`, `evidence`, `expected`, `precision`, `missing`, `could_add`, `questions`, `additional`, `conflicts` |
 
 - What the text does not say is `"unknown"`, `null` or an empty list. Nothing is guessed.
 - `evidence` maps each filled field to the exact words it was read from.
-- `missing` is what the decision cannot run without; `could_add` is what would sharpen it.
+- `expected` lists every fact the reader was expecting (23, in the order the page asks), each marked given or not and `needed` or `helpful`. `missing` is the needed ones not given; `could_add` the helpful ones not given.
+- `precision` says how much of the expected input is there: `level` is `full`, `reduced` (only helpful facts missing) or `low` (a needed fact missing), and `note` is the sentence to show: "The answer wouldn't be as precise: N of the M facts the reader was expecting were not given".
 - Left and right are the vehicle's own sides: driver = left, passenger = right.
 
 ### Criteria: why these fields
@@ -93,6 +98,10 @@ Lists (codes, warning lights, symptoms) are joined. Every difference in 3 to 5 i
 and asked back in `questions`. If the model server gives no answer, the output is the rules' reading and
 `model_error` says why.
 
+## What the page uses today
+
+The page's numbers come from the keyword rules alone (`/api/parse-notes`). The trained model's reading (`/api/engine`) is shown under the result but does not feed the decision. This is deliberate: on the 191 test notes the merged reader gets more stated fields right than the rules (run B, one seed), but it also adds about five times as many values the description does not support, and the second-seed run is not scored yet. The switch is one line (`PRIMARY` in `src/read.ts`, and the page sending `/api/engine`'s JSON to the engine) once the comparison in `model/README.md` supports it.
+
 ## Use
 
 ```
@@ -127,11 +136,12 @@ No paid service is called anywhere in `reader/`.
 | `src/model.ts` | The model reader: answer shape, request, checks (`verifyAnswer`) |
 | `src/read.ts` | `read()` and `merge()` |
 | `src/cli.ts` | `pnpm engine read` |
-| `src/chatAdapter.ts`, `src/openaiParse.ts` | Transport to an OpenAI-compatible server |
-| `prompts/read.md` | The model's instructions. `read_short.md`: a short variant for one comparison run. `read_v1.md`: what run1 was trained with |
-| `scripts/reader/` | Training data: `synth.ts` (template notes), `upgrade.ts` (old notes to the new contract), `export.ts` (training files), `eval.ts` (scoring), `gold.ts` (the test set) |
+| `src/chatAdapter.ts`, `src/modelClient.ts` | Transport to the local model server. It speaks the OpenAI-compatible HTTP format, so the `openai` npm package is used as the HTTP client; nothing calls OpenAI or any paid service |
+| `prompts/read.md` | The model's instructions. `read_short.md`: a short variant for one comparison run. `read_v1.md`: what run1 (the first adapter, old 19-field answer) was trained with; kept so run1 can still be scored as the reference in the comparison |
+| `scripts/reader/` | Training data: `synth.ts` (template notes), `upgrade.ts` (old notes to the new contract; a one-off, kept so the training files can be rebuilt from the untouched originals), `v1.ts` (the old answer shape, used by `upgrade.ts` and by `eval.ts --v1`), `export.ts` (training files), `eval.ts` (scoring), `gold.ts` (the test set) |
 | `fixtures/reader/gold.jsonl` | 191 hand-written test notes with expected assessments. Never trained on |
 | `fixtures/website/` | Page request bodies used by `engine/tests/test_bridge.py` |
+| `scripts/reader/assessments.ts` | `pnpm -s reader:assessments > ../engine/tests/fixtures/reader_assessments.jsonl`: 311 reader outputs the engine's tests route (191 from the test notes as the app sends them, 120 generated). Regenerate it after changing the rules or the contract |
 | `model/` | `train.py`, `serve.py`; see `model/README.md` |
 | `data/reader/` | Training files, gitignored |
 

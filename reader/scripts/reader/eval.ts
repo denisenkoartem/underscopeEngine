@@ -22,7 +22,7 @@ import type { Assessment } from "../../src/contract.js";
 import { loadDotEnv } from "../../src/cli.js";
 import { createCompatClient } from "../../src/chatAdapter.js";
 import { DEFAULT_MODEL, PACKAGE_ROOT, ReadError, buildRequest, loadPrompt, readModel, stripRoleLines, verifyAnswer, type Answer, type Issue } from "../../src/model.js";
-import { callOpenAI, parserTimeoutMs, responseText, type CallContext, type ParserUsage } from "../../src/openaiParse.js";
+import { callModel, parserTimeoutMs, responseText, type CallContext, type ParserUsage } from "../../src/modelClient.js";
 import { merge } from "../../src/read.js";
 import { readRules } from "../../src/rules.js";
 import { HIGH_STAKES, UNKNOWN, cliArgs, expectAssessment, gates, metrics, readJsonl, scoreItem, verifyNotes, type GoldItem, type ItemResult, type Metrics, type ReaderItem } from "./lib.js";
@@ -53,7 +53,7 @@ async function readV1(notes: string, usage: ParserUsage[]): Promise<{ assessment
   const body = { ...buildRequest(env.PARSER_MODEL || DEFAULT_MODEL, text, { prompt: loadPrompt(join(PACKAGE_ROOT, "prompts", "read_v1.md")), sparse: true }) };
   let old: V1Extraction;
   try {
-    old = JSON.parse(responseText(await callOpenAI(ctx, "read v1", body))) as V1Extraction;
+    old = JSON.parse(responseText(await callModel(ctx, "read v1", body))) as V1Extraction;
   } catch (e) {
     throw new ReadError(`no usable v1 answer (${(e as Error).message})`);
   }
@@ -104,8 +104,11 @@ async function main(): Promise<number> {
       if (/PARSER_BASE_URL|\b(401|403|404)\b|ECONNREFUSED|request failed/.test(e.message)) throw e;
       failed = e.message;
       console.error(`${item.id}: failed (${e.message})`);
+      // read() answers with the rules alone when the model gives nothing, so that is what is scored;
+      // the reading still counts as failed.
+      if (kind === "merged") pred = readRules(item.notes);
     }
-    const r = scoreItem(item.id, gold, pred, issues, { failed, latency_ms: Date.now() - started });
+    const r = { ...scoreItem(item.id, gold, pred, issues, { failed, latency_ms: Date.now() - started }), malformed_dropped: issues.filter((i) => i.kind === "malformed_dropped").map((i) => i.path) };
     results.push(r);
     if (values.show && r.gold[values.show] !== r.pred[values.show]) {
       console.log(`${item.id}  ${values.show}: want ${r.gold[values.show] ?? UNKNOWN}, got ${r.pred[values.show] ?? UNKNOWN}\n    ${item.notes.replace(/\n/g, " | ").slice(0, 400)}`);

@@ -12,7 +12,7 @@
 import OpenAI from "openai";
 import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import type { Response, ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
-import { parserTimeoutMs, type ParserClient } from "./openaiParse.js";
+import { parserTimeoutMs, type ParserClient } from "./modelClient.js";
 
 /** The one chat method the adapter uses; tests inject a fake. */
 export interface ChatClient {
@@ -87,7 +87,7 @@ export function chatParserClient(chat: ChatClient): ParserClient {
 
 /**
  * The extraction client for PARSER_BASE_URL: an OpenAI SDK client pointed at that server, no SDK
- * retries (callOpenAI retries once itself), the parser timeout. The key is PARSER_API_KEY, never
+ * retries (callModel retries once itself), the parser timeout. The key is PARSER_API_KEY, never
  * OPENAI_API_KEY (that key must not be sent to another host); local servers accept any string.
  */
 export function createCompatClient(baseURL: string, env: NodeJS.ProcessEnv = process.env): ParserClient {

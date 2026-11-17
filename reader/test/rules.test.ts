@@ -47,6 +47,25 @@ describe("unknown stays unknown", () => {
   });
 });
 
+describe("what the reader was expecting", () => {
+  it("lists every expected fact as given or not, and says the answer will be less precise", () => {
+    const a = readRules("Clean title, 84k miles. Runs and drives. Hood is dented.");
+    expect(a.expected.filter((e) => e.given).map((e) => e.field)).toEqual(["title_status", "mileage", "grades", "run_status"]);
+    expect(a.expected.find((e) => e.field === "values.clean_wholesale")).toMatchObject({ need: "needed", given: false });
+    expect(a.precision).toMatchObject({ expected: 23, given: 4, level: "low" });
+    expect(a.precision.note).toMatch(/^The answer wouldn't be as precise: 19 of the 23 facts/);
+    expect(a.missing).toEqual(a.expected.filter((e) => !e.given && e.need === "needed").map((e) => e.ask));
+    expect(a.could_add).toEqual(a.expected.filter((e) => !e.given && e.need === "helpful").map((e) => e.ask));
+  });
+  it("needed facts all given but helpful ones missing is 'reduced'; everything given is 'full' with no note", () => {
+    const needed = "Clean title, 84,000 miles. Hood is dented, everything else is fine. Airbags did not deploy, no frame damage, no leaks. Clean wholesale is $24,500. Similar damaged ones sold for 9800, 10400, 11200.";
+    expect(readRules(needed).precision).toMatchObject({ level: "reduced" });
+    const all = readRules(`Dealer trade-in. Title in hand, no lien. Actual miles, located in NY. Runs and drives, two keys. Front end hit. Never flooded. Engine and transmission are fine, catalytic converter is present. Shop quoted $4,200. Won't take less than $9,000. ${needed}`);
+    expect(all.could_add).toEqual([]);
+    expect(all.precision).toEqual({ expected: 23, given: 23, level: "full", note: null });
+  });
+});
+
 describe("traps", () => {
   it("a spare key missing is not 'no keys'; a sunroof is not the roof; new tires are not damage", () => {
     const a = readRules("Spare key is missing but the main key works. Has a sunroof and new tires.");

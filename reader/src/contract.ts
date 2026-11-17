@@ -106,8 +106,12 @@ export type Assessment = {
   sell_by_days: number | null;
 
   evidence: Record<string, string>;            // field path -> the words it was read from
-  missing: string[];                           // what the decision cannot run without
-  could_add: string[];                         // what would sharpen the decision
+  /** Every fact the reader was expecting, in the order the page asks for it, given or not. */
+  expected: { field: string; need: 'needed' | 'helpful'; given: boolean; ask: string }[];
+  /** How much of the expected input is there. `note` is null when nothing is missing. */
+  precision: { expected: number; given: number; level: 'full' | 'reduced' | 'low'; note: string | null };
+  missing: string[];                           // expected and needed for the decision, not given
+  could_add: string[];                         // expected and helpful, not given
   questions: string[];                         // things the text says but not clearly enough
   additional: string[];                        // what the seller said that fits no field
   /** Fields the rules and the model read differently, with the value kept and the one dropped (read.ts). */
@@ -127,39 +131,67 @@ export function emptyAssessment(reader: Assessment['reader']): Assessment {
     warning_lights: [], codes: [], symptoms: [],
     values: { clean_wholesale: null, salvage_comps: [], purchase_price: null, repair_estimate: null, reserve_price: null },
     storage_cost_per_day: null, sell_by_days: null,
-    evidence: {}, missing: [], could_add: [], questions: [], additional: [], conflicts: [],
+    evidence: {}, expected: [], precision: { expected: 0, given: 0, level: 'low', note: null }, missing: [], could_add: [], questions: [], additional: [], conflicts: [],
   };
 }
 
-/** Fill `missing` (the decision needs these) and `could_add` (these sharpen it) from what is still unknown. */
-export function listMissing(a: Assessment): void {
-  const graded = a.grades.filter((g) => g.grade !== 'unknown').length;
-  const m: string[] = [];
-  if (a.title_status === 'unknown') m.push('the title status (clean, salvage, rebuilt, flood, non-repairable or lemon)');
-  if (a.values.clean_wholesale === null) m.push('the clean wholesale value (same year, model and mileage, no damage)');
-  if (a.values.salvage_comps.length < 3) m.push(`sold prices of at least 3 similar damaged vehicles (${a.values.salvage_comps.length} so far)`);
-  if (a.mileage === null) m.push('the mileage');
-  if (graded === 0) m.push('what is damaged, part by part, or "no damage"');
-  else if (graded < PARTS.length && a.evidence['grades.rest'] === undefined) m.push('whether the rest of the vehicle is undamaged ("everything else is fine")');
-  if (a.flags.airbags_deployed === 'unknown') m.push('whether the airbags deployed');
-  if (a.flags.frame_suspected === 'unknown') m.push('whether the frame is damaged');
-  if (a.flags.fluid_leak === 'unknown') m.push('whether any fluids are leaking');
-  a.missing = m;
+/** One fact the reader expects a description to give. */
+interface Expectation {
+  /** Path of the field in the Assessment. */
+  field: string;
+  /** How to ask the seller for it. */
+  ask: (a: Assessment) => string;
+  /** needed: the decision leans on it. helpful: it sharpens the decision. */
+  need: 'needed' | 'helpful';
+  given: (a: Assessment) => boolean;
+  /** Only expected when this holds (e.g. "is the mileage actual" needs a mileage). */
+  when?: (a: Assessment) => boolean;
+}
+const graded = (a: Assessment) => a.grades.filter((g) => g.grade !== 'unknown').length;
 
-  const c: string[] = [];
-  if (a.seller_type === 'unknown') c.push('who is selling (dealer, insurer, fleet, lender or private owner)');
-  if (a.title_in_hand === 'unknown') c.push('whether the title is in hand');
-  if (a.lien === 'unknown') c.push('whether there is an open lien');
-  if (a.mileage !== null && a.odometer_status === 'unknown') c.push('whether the mileage is actual');
-  if (a.run_status === 'unknown') c.push('whether it runs and drives');
-  if (a.keys === 'unknown') c.push('whether the keys are with it');
-  if (a.engine_condition === 'unknown') c.push('the engine condition');
-  if (a.transmission_condition === 'unknown') c.push('the transmission condition');
-  if (a.primary_damage === 'unknown') c.push('where the main damage is (front, rear, side, hail, water, fire...)');
-  if (a.flags.flood_suspected === 'unknown') c.push('whether there are any flood signs');
-  if (a.catalytic_converter === 'unknown') c.push('whether the catalytic converter is present');
-  if (a.values.repair_estimate === null) c.push('a repair quote, if you have one');
-  if (a.values.reserve_price === null) c.push('the lowest price you would accept');
-  if (a.region === null) c.push('the state the vehicle is in');
-  a.could_add = c;
+/** Everything the reader expects to find, in the order the page asks for it. */
+export const EXPECTED: readonly Expectation[] = [
+  { field: 'title_status', need: 'needed', ask: () => 'the title status (clean, salvage, rebuilt, flood, non-repairable or lemon)', given: (a) => a.title_status !== 'unknown' },
+  { field: 'values.clean_wholesale', need: 'needed', ask: () => 'the clean wholesale value (same year, model and mileage, no damage)', given: (a) => a.values.clean_wholesale !== null },
+  { field: 'values.salvage_comps', need: 'needed', ask: (a) => `sold prices of at least 3 similar damaged vehicles (${a.values.salvage_comps.length} so far)`, given: (a) => a.values.salvage_comps.length >= 3 },
+  { field: 'mileage', need: 'needed', ask: () => 'the mileage', given: (a) => a.mileage !== null },
+  { field: 'grades', need: 'needed', ask: () => 'what is damaged, part by part, or "no damage"', given: (a) => graded(a) > 0 },
+  { field: 'grades.rest', need: 'needed', ask: () => 'whether the rest of the vehicle is undamaged ("everything else is fine")', given: (a) => graded(a) === PARTS.length || a.evidence['grades.rest'] !== undefined, when: (a) => graded(a) > 0 },
+  { field: 'flags.airbags_deployed', need: 'needed', ask: () => 'whether the airbags deployed', given: (a) => a.flags.airbags_deployed !== 'unknown' },
+  { field: 'flags.frame_suspected', need: 'needed', ask: () => 'whether the frame is damaged', given: (a) => a.flags.frame_suspected !== 'unknown' },
+  { field: 'flags.fluid_leak', need: 'needed', ask: () => 'whether any fluids are leaking', given: (a) => a.flags.fluid_leak !== 'unknown' },
+  { field: 'seller_type', need: 'helpful', ask: () => 'who is selling (dealer, insurer, fleet, lender or private owner)', given: (a) => a.seller_type !== 'unknown' },
+  { field: 'title_in_hand', need: 'helpful', ask: () => 'whether the title is in hand', given: (a) => a.title_in_hand !== 'unknown' },
+  { field: 'lien', need: 'helpful', ask: () => 'whether there is an open lien', given: (a) => a.lien !== 'unknown' },
+  { field: 'odometer_status', need: 'helpful', ask: () => 'whether the mileage is actual', given: (a) => a.odometer_status !== 'unknown', when: (a) => a.mileage !== null },
+  { field: 'run_status', need: 'helpful', ask: () => 'whether it runs and drives', given: (a) => a.run_status !== 'unknown' },
+  { field: 'keys', need: 'helpful', ask: () => 'whether the keys are with it', given: (a) => a.keys !== 'unknown' },
+  { field: 'engine_condition', need: 'helpful', ask: () => 'the engine condition', given: (a) => a.engine_condition !== 'unknown' },
+  { field: 'transmission_condition', need: 'helpful', ask: () => 'the transmission condition', given: (a) => a.transmission_condition !== 'unknown' },
+  { field: 'primary_damage', need: 'helpful', ask: () => 'where the main damage is (front, rear, side, hail, water, fire...)', given: (a) => a.primary_damage !== 'unknown' },
+  { field: 'flags.flood_suspected', need: 'helpful', ask: () => 'whether there are any flood signs', given: (a) => a.flags.flood_suspected !== 'unknown' },
+  { field: 'catalytic_converter', need: 'helpful', ask: () => 'whether the catalytic converter is present', given: (a) => a.catalytic_converter !== 'unknown' },
+  { field: 'values.repair_estimate', need: 'helpful', ask: () => 'a repair quote, if you have one', given: (a) => a.values.repair_estimate !== null },
+  { field: 'values.reserve_price', need: 'helpful', ask: () => 'the lowest price you would accept', given: (a) => a.values.reserve_price !== null },
+  { field: 'region', need: 'helpful', ask: () => 'the state the vehicle is in', given: (a) => a.region !== null },
+];
+
+/**
+ * Say what the reader was expecting and what it got: `expected` (every expected fact, given or not),
+ * `missing` (needed, not given), `could_add` (helpful, not given) and `precision` (how much of the
+ * expected input is there, with the sentence to show when the answer will be less precise).
+ */
+export function listMissing(a: Assessment): void {
+  a.expected = EXPECTED.filter((e) => !e.when || e.when(a)).map((e) => ({ field: e.field, need: e.need, given: e.given(a), ask: e.ask(a) }));
+  const open = a.expected.filter((e) => !e.given);
+  a.missing = open.filter((e) => e.need === 'needed').map((e) => e.ask);
+  a.could_add = open.filter((e) => e.need === 'helpful').map((e) => e.ask);
+  const level = a.missing.length > 0 ? 'low' : a.could_add.length > 0 ? 'reduced' : 'full';
+  a.precision = {
+    expected: a.expected.length,
+    given: a.expected.length - open.length,
+    level,
+    note: level === 'full' ? null
+      : `The answer wouldn't be as precise: ${open.length} of the ${a.expected.length} facts the reader was expecting were not given${a.missing.length ? ` (${a.missing.length} of them needed for the decision)` : ''}.`,
+  };
 }

@@ -1,4 +1,4 @@
-// POST /api/engine  { text } -> { assessment, issues, model_error, model }
+// POST /api/engine  { text } or { fields, text } -> { assessment, issues, model_error, model }
 // The seller's description read by the reader with its trained model (reader/src/read.ts): the keyword
 // rules and the model merged into one assessment JSON (reader/src/contract.ts). It decides nothing; the
 // engine analyzes the JSON. POST /api/parse-notes is the same reader without the model.
@@ -8,6 +8,7 @@
 import type { ApiRequest, ApiResponse } from './_lib/http.js';
 import { DEFAULT_MODEL, MAX_TEXT_CHARS } from '../reader/src/model.js';
 import { read } from '../reader/src/read.js';
+import { composeBody } from '../reader/src/form.js';
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -27,9 +28,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST' });
   if (!enabled) return res.status(501).json({ error: '/api/engine is off here (set ENGINE_ENABLED=1 to turn it on)' });
-  // "notes" is the name the page used before 2026-11-16.
-  const text = req.body?.text ?? req.body?.notes;
-  if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_TEXT_CHARS) return res.status(400).json({ error: `text must be a non-empty string of up to ${MAX_TEXT_CHARS} characters` });
+  // The page's boxes and its general box, written into one text (reader/src/form.ts).
+  const text = composeBody(req.body);
+  if (text === null || text.trim() === '' || text.length > MAX_TEXT_CHARS) return res.status(400).json({ error: `text (or fields) must be non-empty strings of up to ${MAX_TEXT_CHARS} characters together` });
   try {
     const r = await read(text, { log: (line) => console.error(line) });
     return res.status(200).json({ ...r, model });
